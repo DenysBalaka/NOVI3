@@ -198,7 +198,7 @@ export function openTestEditorTab(testId) {
       <div class="config-box tests-config-box">
         <div class="form-group" style="flex: 1; min-width: 300px;">
           <label for="t-title">Назва тесту</label>
-          <input class="input" id="t-title" placeholder="Назва тесту">
+          <input class="input" id="t-title" placeholder="Введіть назву тесту..." value="${window.esc(testDraft.title === 'Новий тест (без назви)' ? '' : testDraft.title)}">
         </div>
         <div class="form-group">
           <label for="t-class-select">Клас</label>
@@ -229,30 +229,32 @@ export function openTestEditorTab(testId) {
     // 1. Заповнюємо фільтри та дані
     populateTestFilters(classSel, subjectSel, true);
     
-    titleInput.value = testDraft.title;
     classSel.value = testDraft.className || "";
     subjectSel.value = testDraft.subjectName || "";
 
     // 2. Відмальовуємо питання
     renderTestCreatorQuestions(testDraft, questionsBox);
     
-    // 3. Біндимо логіку кнопок (перенесено з bindTestCreatorLogic)
+    // 3. Біндимо логіку кнопок
     
     // Збереження змін у чернетці при вводі
-    titleInput.oninput = () => testDraft.title = titleInput.value.trim();
+    titleInput.oninput = () => {
+        let val = titleInput.value.trim();
+        testDraft.title = val === "" ? "Новий тест (без назви)" : val;
+    };
     classSel.onchange = () => testDraft.className = classSel.value;
     subjectSel.onchange = () => testDraft.subjectName = subjectSel.value;
 
     // Додати питання
     window.$("#t-addq").onclick = () => {
-      // === ОНОВЛЕНО: 'text' тепер порожній, щоб спрацював placeholder ===
+      // === ОНОВЛЕНО: Тексти порожні, щоб працювали placeholders ===
       testDraft.questions.push({
         type: 'radio',
-        text: '', // <--- ВИПРАВЛЕНО
+        text: '', 
         image: null,
         options: [
-          { text: 'Варіант 1', correct: true },
-          { text: 'Варіант 2', correct: false }
+          { text: '', correct: true },  // Порожній текст
+          { text: '', correct: false }  // Порожній текст
         ],
         points: 1
       });
@@ -263,14 +265,11 @@ export function openTestEditorTab(testId) {
     
     // Зберегти і закрити
     window.$("#t-save").onclick = async () => {
-      // (Назва, клас, предмет вже оновлені в testDraft завдяки oninput/onchange)
-      
       // Знаходимо оригінальний тест і замінюємо його
       const originalTestIndex = window.state.tests.findIndex(t => t.id === testId);
       if (originalTestIndex > -1) {
         window.state.tests[originalTestIndex] = testDraft;
       } else {
-        // Якщо раптом тест видалили, поки ми редагували
         window.state.tests.push(testDraft);
       }
       
@@ -279,7 +278,6 @@ export function openTestEditorTab(testId) {
       
       window.closeTab(tabId);
       
-      // Оновлюємо головну сторінку тестів, якщо вона активна
       if (window.active === 'tests') {
         window.renderTests();
       }
@@ -293,7 +291,7 @@ export function openTestEditorTab(testId) {
  * @param {HTMLElement} questionsBox - Контейнер для питань
  */
 function renderTestCreatorQuestions(testDraft, questionsBox) {
-  questionsBox.innerHTML = ""; // Очищуємо
+  questionsBox.innerHTML = ""; 
   
   if (testDraft.questions.length === 0) {
     questionsBox.innerHTML = `<p style="text-align: center; color: var(--muted); padding-top: 20px;">Натисніть "+ Питання", щоб додати перше питання.</p>`;
@@ -305,7 +303,7 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
     qBlock.className = "question-block";
     qBlock.style.background = "var(--bg-light)";
     
-    // === ХЕДЕР ПИТАННЯ (Тип, Бали, Видалення) ===
+    // === ХЕДЕР ПИТАННЯ ===
     let optionsHTML = "";
     const types = [
       { val: 'radio', label: 'Один варіант' },
@@ -317,7 +315,7 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       optionsHTML += `<option value="${t.val}" ${q.type === t.val ? 'selected' : ''}>${t.label}</option>`;
     });
 
-    // === ТЕКСТ ПИТАННЯ ТА ЗОБРАЖЕННЯ ===
+    // === ЗОБРАЖЕННЯ ===
     const imagePreviewHTML = q.image ? `
       <div style="position: relative; margin-top: 8px;">
         <img src="${q.image}" style="max-width: 200px; max-height: 100px; border-radius: 4px; border: 1px solid var(--border-color); cursor: zoom-in;">
@@ -329,8 +327,8 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       <div class="question-header">
         <h4 style="margin: 0; min-width: 90px;">Питання #${qi + 1}</h4>
         
-        <textarea class="input q-text-input" placeholder="Текст питання..." 
-                  style="width: 250px; min-width: 250px; height: 36px;">${window.esc(q.text)}</textarea>
+        <textarea class="input q-text-input" placeholder="Введіть текст питання сюди..." 
+                  style="width: 250px; min-width: 250px; height: 36px;">${window.esc(q.text || "")}</textarea>
         
         <div class="form-group" style="max-width: 180px;">
           <label>Тип питання</label>
@@ -355,7 +353,7 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       </button>
     `;
     
-    // === РЕНДЕР ВАРІАНТІВ ===
+    // === РЕНДЕР ВАРІАНТІВ ВІДПОВІДЕЙ ===
     const optionsList = window.$(".options-list", qBlock);
     if (q.type === 'radio' || q.type === 'check') {
       (q.options || []).forEach((opt, opti) => {
@@ -367,22 +365,22 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
         
         const inputType = q.type === 'radio' ? 'radio' : 'checkbox';
         
+        // ДОДАНО PLACEHOLDER ДЛЯ ВАРІАНТІВ
         optRow.innerHTML = `
           <label style="display: flex; flex: 1; align-items: center; gap: 4px;">
             <input type="${inputType}" name="q-correct-${qi}" ${opt.correct ? 'checked' : ''} data-opt-index="${opti}">
-            <input type="text" class="input opt-text-input" value="${window.esc(opt.text)}" style="width: 100%;">
+            <input type="text" class="input opt-text-input" placeholder="Введіть текст варіанту..." value="${window.esc(opt.text || "")}" style="width: 100%;">
           </label>
           <button class="btn danger ghost" data-action="delete-opt" data-opt-index="${opti}" style="min-width: 32px; padding: 4px 8px;">✕</button>
         `;
         
-        // Логіка оновлення варіантів
         window.$(".opt-text-input", optRow).oninput = (e) => {
           testDraft.questions[qi].options[opti].text = e.target.value;
         };
         window.$(`input[type="${inputType}"]`, optRow).onchange = (e) => {
           if (q.type === 'radio') {
             testDraft.questions[qi].options.forEach((o, i) => o.correct = (i === opti));
-          } else { // checkbox
+          } else { 
             testDraft.questions[qi].options[opti].correct = e.target.checked;
           }
         };
@@ -411,22 +409,17 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       testDraft.questions[qi].points = parseInt(e.target.value, 10) || 1;
     };
 
-    // === ВИПРАВЛЕНО: Перевірка на помилку PNG ===
     window.$('[data-action="add-image"]', qBlock).onclick = async () => {
       const dataUrl = await window.tj.readFileAsDataUrl();
-
-      // Перевірка на помилку
       if (dataUrl && dataUrl.error) {
-        window.showCustomAlert("Помилка завантаження файлу", dataUrl.error);
+        window.showCustomAlert("Помилка", dataUrl.error);
         return;
       }
-
       if (dataUrl) {
         testDraft.questions[qi].image = dataUrl;
         renderTestCreatorQuestions(testDraft, questionsBox);
       }
     };
-    // === КІНЕЦЬ ВИПРАВЛЕННЯ ===
     
     const delImgBtn = window.$('[data-action="delete-image"]', qBlock);
     if (delImgBtn) {
@@ -434,7 +427,6 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
         testDraft.questions[qi].image = null;
         renderTestCreatorQuestions(testDraft, questionsBox);
       };
-      // Попередній перегляд
       window.$('img', qBlock).onclick = () => {
         window.previewImage(q.image);
       };
@@ -442,12 +434,13 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
 
     window.$('[data-action="delete-q"]', qBlock).onclick = () => {
       testDraft.questions.splice(qi, 1);
-      renderTestCreatorQuestions(testDraft, questionsBox); // Перемалювати все
+      renderTestCreatorQuestions(testDraft, questionsBox); 
     };
     
     window.$('[data-action="add-option"]', qBlock).onclick = () => {
       if (!testDraft.questions[qi].options) testDraft.questions[qi].options = [];
-      testDraft.questions[qi].options.push({ text: 'Новий варіант', correct: false });
+      // ДОДАНО ПОРОЖНІЙ ТЕКСТ ДЛЯ НОВОГО ВАРІАНТУ
+      testDraft.questions[qi].options.push({ text: '', correct: false });
       renderTestCreatorQuestions(testDraft, questionsBox);
     };
     
