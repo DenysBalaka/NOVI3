@@ -248,28 +248,72 @@ ipcMain.handle("tj:write-csv", async (e, p, txt) => {
 });
 
 // === ЗМІНА №2: Оновлено логіку ширини колонок для XLSX ===
-ipcMain.handle("tj:write-xlsx", async (e, p, sheetsData) => {
-  const workbook = new ExcelJS.Workbook();
-  
-  for (const [sheetName, rows] of Object.entries(sheetsData)) {
-    if (!rows || rows.length === 0) continue; 
-    
-    const sheet = workbook.addWorksheet(sheetName);
-    
-    // Нова логіка ширини
-    sheet.columns = Object.keys(rows[0]).map(key => ({ 
-      header: key, 
-      key: key, 
-      width: (key === "Учень" ? 30 : (key.includes("(Прим.)") ? 25 : 12))
-    }));
-    
-    sheet.addRows(rows);
-  }
-  
+ipcMain.handle("tj:write-xlsx", async (e, p, data) => {
   try {
+    const workbook = new ExcelJS.Workbook();
+
+    // Допоміжна функція для стилізації аркуша
+    const formatSheet = (sheet, rows) => {
+      if (!rows || rows.length === 0) return;
+      
+      // 1. Створюємо колонки з автошириною (на основі назв)
+      const columns = Object.keys(rows[0]).map(key => ({
+        header: key,
+        key: key,
+        width: Math.max(key.length + 5, 12) 
+      }));
+      sheet.columns = columns;
+
+      // 2. Додаємо дані
+      rows.forEach(row => sheet.addRow(row));
+
+      // 3. Стилізуємо заголовок (перший рядок)
+      const headerRow = sheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }; // Білий жирний текст
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4F81BD' } // Приємний синій фон
+      };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // 4. Додаємо рамки для всіх клітинок та вирівнювання
+      sheet.eachRow((row, rowNumber) => {
+        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          // Рамки
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+          // Вирівнювання для даних
+          if (rowNumber > 1) {
+             cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+          }
+        });
+      });
+    };
+
+    // Перевіряємо, чи дані це масив (один аркуш) чи об'єкт (багато аркушів по класах)
+    if (Array.isArray(data)) {
+      const sheet = workbook.addWorksheet("Експорт");
+      formatSheet(sheet, data);
+    } else if (typeof data === 'object') {
+      for (const [sheetName, rows] of Object.entries(data)) {
+        // Назва аркуша в Excel не може перевищувати 31 символ
+        const safeName = String(sheetName).substring(0, 31);
+        const sheet = workbook.addWorksheet(safeName);
+        formatSheet(sheet, rows);
+      }
+    }
+
     await workbook.xlsx.writeFile(p);
     return true;
-  } catch (err) { return { error: err.message }; }
+  } catch (err) {
+    console.error("Помилка експорту Excel:", err);
+    return false;
+  }
 });
 
 // Експорт Тестів (DOCX) (без змін, помилку дублювання виправлено минулого разу)
