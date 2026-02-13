@@ -1,4 +1,6 @@
-export function renderReportPage(){
+// === ФАЙЛ: module_reports.js ===
+
+export function renderReportPage() {
   window.areaEl.innerHTML = `
     <h2>Створення звіту</h2>
     
@@ -20,7 +22,9 @@ export function renderReportPage(){
       </div>
       <div class="form-group">
         <label for="report-subject">Предмет</label>
-        <select id="report-subject" class="input"></select>
+        <select id="report-subject" class="input">
+          <option value="all">Всі предмети</option>
+        </select>
       </div>
       
       <div class="form-buttons-group">
@@ -30,198 +34,318 @@ export function renderReportPage(){
     </div>
     
     <div class="output-box" id="report-output">
-      <p style="color: var(--muted)">Оберіть параметри та натисніть "Сформувати".</p>
+      <p style="color: var(--muted)">Оберіть параметри та натисніть "Сформувати"</p>
     </div>
-    
-    <div class="output-box">
+
+    <div class="output-box" id="saved-reports-output" style="margin-top: 20px;">
       <h3>Збережені звіти</h3>
-      <table class="table" id="reports-table">
-        <thead><tr><th>Дата</th><th>Назва</th><th>Тип</th><th style="width: 220px;">Дії</th></tr></thead>
+      <table class="table" id="saved-reports-table">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Назва звіту</th>
+            <th>Тип</th>
+            <th style="width: 200px;">Дії</th>
+          </tr>
+        </thead>
         <tbody></tbody>
       </table>
     </div>
   `;
-  
+
   populateReportPageFilters();
   bindReportPageLogic();
-  populateSavedReportsList(); 
+  populateSavedReportsList();
 }
 
 export function populateReportPageFilters() {
   const typeSel = window.$("#report-type");
   const classSel = window.$("#report-class");
   const studentSel = window.$("#report-student");
-  const studentGr = window.$("#report-student-group");
+  const studentGroup = window.$("#report-student-group");
   const subjectSel = window.$("#report-subject");
 
-  classSel.innerHTML = "<option value=''>-- Всі класи --</option>";
-  Object.keys(window.state.students).sort().forEach(className => {
-    classSel.innerHTML += `<option value="${window.esc(className)}">${window.esc(className)}</option>`;
+  // Заповнення класів
+  classSel.innerHTML = "";
+  const classes = Object.keys(window.state.students || {});
+  if (classes.length === 0) {
+    classSel.innerHTML = `<option value="">Немає класів</option>`;
+  } else {
+    classes.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c; opt.textContent = c;
+      classSel.appendChild(opt);
+    });
+  }
+
+  // Заповнення предметів
+  subjectSel.innerHTML = `<option value="all">Всі предмети</option>`;
+  (window.state.subjects || []).forEach(sub => {
+    const opt = document.createElement("option");
+    opt.value = sub; opt.textContent = sub;
+    subjectSel.appendChild(opt);
   });
-  
-  subjectSel.innerHTML = "<option value=''>-- Всі предмети --</option>";
-  window.state.subjects.sort().forEach(subjectName => {
-    subjectSel.innerHTML += `<option value="${window.esc(subjectName)}">${window.esc(subjectName)}</option>`;
-  });
-  
-  const updateStudentList = () => {
-    const className = classSel.value;
-    studentSel.innerHTML = "<option value=''>-- Всі учні --</option>";
-    if (className && window.state.students[className]) {
-      window.state.students[className].sort().forEach(studentName => {
-        studentSel.innerHTML += `<option value="${window.esc(studentName)}">${window.esc(studentName)}</option>`;
-      });
-    }
-  };
-  
-  const toggleStudentSelect = () => {
-    studentGr.style.display = (typeSel.value === 'student') ? 'flex' : 'none';
+
+  const updateStudents = () => {
+    studentSel.innerHTML = "";
+    const selectedClass = classSel.value;
+    if (!selectedClass || !window.state.students[selectedClass]) return;
+    window.state.students[selectedClass].forEach(st => {
+      const opt = document.createElement("option");
+      opt.value = st; opt.textContent = st;
+      studentSel.appendChild(opt);
+    });
   };
 
-  classSel.onchange = updateStudentList;
-  typeSel.onchange = toggleStudentSelect;
-  
-  updateStudentList();
-  toggleStudentSelect();
+  classSel.onchange = updateStudents;
+  updateStudents();
+
+  typeSel.onchange = () => {
+    if (typeSel.value === "student") {
+      studentGroup.style.display = "block";
+    } else {
+      studentGroup.style.display = "none";
+    }
+  };
+  typeSel.onchange();
 }
 
 export function bindReportPageLogic() {
   const btnGen = window.$("#report-generate-btn");
   const btnSave = window.$("#report-save-btn");
-  const outputEl = window.$("#report-output");
-  
-  let currentReportData = null; // Зберігаємо дані для збереження
+  const out = window.$("#report-output");
+
+  let lastGeneratedHtml = "";
+  let lastGeneratedTitle = "";
 
   btnGen.onclick = () => {
-    const filters = {
-      type: window.$("#report-type").value,
-      className: window.$("#report-class").value,
-      studentName: window.$("#report-student").value,
-      subjectName: window.$("#report-subject").value
-    };
-    
-    const { html, data } = generateReportHTML(filters);
-    outputEl.innerHTML = html;
-    currentReportData = data; // Зберігаємо дані
+    const type = window.$("#report-type").value;
+    const cls = window.$("#report-class").value;
+    const stu = window.$("#report-student").value;
+    const sub = window.$("#report-subject").value;
+
+    if (!cls) {
+      out.innerHTML = `<p style="color: var(--danger)">Помилка: Не обрано клас.</p>`;
+      return;
+    }
+
+    const reportData = generateReportHTML(type, cls, stu, sub);
+    lastGeneratedHtml = reportData.html;
+    lastGeneratedTitle = reportData.title;
+    out.innerHTML = lastGeneratedHtml;
   };
-  
+
   btnSave.onclick = async () => {
-    if (!currentReportData) {
-      await window.showCustomAlert("Помилка", "Спочатку потрібно сформувати звіт.");
+    if (!lastGeneratedHtml) {
+      await window.showCustomAlert("Увага", "Спочатку сформуйте звіт.");
       return;
     }
     
+    // Перевірка, чи існує масив збережених звітів
+    if (!window.state.reports) window.state.reports = [];
+
     const newReport = {
       id: "rep_" + Date.now(),
+      title: lastGeneratedTitle,
+      type: window.$("#report-type").value,
       date: new Date().toISOString(),
-      ...currentReportData 
+      html: lastGeneratedHtml
     };
-    
+
     window.state.reports.push(newReport);
-    window.saveReports(); 
-    populateSavedReportsList(); 
-    await window.showCustomAlert("Успіх", `Звіт "${newReport.title}" збережено.`);
+    
+    // Збереження у файл
+    await window.tj.writeJSON(window.tj.getPaths().reportsPath, window.state.reports);
+    
+    await window.showCustomAlert("Успіх", "Звіт успішно збережено!");
+    populateSavedReportsList();
   };
 }
 
-export function generateReportHTML(filters) {
-  const { type, className, studentName, subjectName } = filters;
-  
+export function generateReportHTML(type, cls, stu, sub) {
+  let html = "";
   let title = "";
-  let reportDate = new Date().toLocaleString("uk-UA");
-  let html = `<div class="report-header">
-                <h3>Звіт (Попередній перегляд)</h3>
-                <p>Дата формування: ${reportDate}</p>
-              </div>`;
-  
-  const filteredLessons = window.state.lessons.filter(l => {
-    if (className && l.class !== className) return false;
-    if (subjectName && l.subject !== subjectName) return false;
-    return true;
-  });
+  let lessonsCount = 0;
+  let gradesSum = 0;
+  let gradesCount = 0;
+  let absenceCount = 0;
 
-  if (type === 'student') {
-    if (!studentName) return { html: "<p style='color: #e74c3c'>Для звіту по учню необхідно обрати клас та учня.</p>", data: null };
-    
-    title = `Звіт по учню: ${studentName}`;
-    html += `<h4>${title}</h4>`;
-    if (subjectName) html += `<p><b>Предмет:</b> ${subjectName}</p>`;
-    
-    let gradeSum = 0, gradeCount = 0;
-    const notes = [];
-    
-    filteredLessons.forEach(l => {
-      const sData = l.students[studentName];
-      if (!sData) return;
-      
-      const grade = parseInt(sData.grade, 10);
-      if (grade > 0) { gradeSum += grade; gradeCount++; }
-      if (sData.note) { notes.push(`<b>${l.date.split('T')[0]} (${l.subject}):</b> ${window.esc(sData.note)}`); }
-    });
-    
-    if (notes.length > 0) {
-      html += `<h5>Нотатки по уроках:</h5><ul class="report-list"><li>${notes.join('</li><li>')}</li></ul>`;
-    } else {
-      html += `<p><i>(Нотаток по уроках не знайдено)</i></p>`;
-    }
-    
-    if (gradeCount > 0) {
-      const avg = (gradeSum / gradeCount).toFixed(2);
-      html += `<p style="margin-top: 8px;"><b>Середній бал: ${avg}</b> (на основі ${gradeCount} оцінок)</p>`;
-    }
-  } else { // type === 'class'
-    if (!className) return { html: "<p style='color: #e74c3c'>Для звіту по класу необхідно обрати клас.</p>", data: null };
-    
-    title = `Звіт по класу: ${className}`;
-    html += `<h4>${title}</h4>`;
-    if (subjectName) html += `<p><b>Предмет:</b> ${subjectName}</p>`;
-    
-    const studentsInClass = (window.state.students[className] || []).sort();
-    const studentAverages = {}; 
-    html += `<table class="report-table"><thead><tr><th>Учень</th><th>Середній бал</th><th>Нотатки по уроках</th></tr></thead><tbody>`;
-    
-    studentsInClass.forEach(stud => {
-      studentAverages[stud] = { sum: 0, n: 0, notes: [] };
-      filteredLessons.forEach(l => {
-        const sData = l.students[stud]; if (!sData) return;
-        const grade = parseInt(sData.grade, 10);
-        if (grade > 0) { studentAverages[stud].sum += grade; studentAverages[stud].n++; }
-        if (sData.note) { studentAverages[stud].notes.push(`<b>${l.date.split('T')[0]}:</b> ${window.esc(sData.note)}`); }
-      });
-      const avg = studentAverages[stud].n > 0 ? (studentAverages[stud].sum / studentAverages[stud].n).toFixed(2) : '–';
-      const notesHtml = studentAverages[stud].notes.length > 0 ? `<ul class="report-list small"><li>${studentAverages[stud].notes.join('</li><li>')}</li></ul>` : '–';
-      html += `<tr><td>${window.esc(stud)}</td><td>${avg}</td><td>${notesHtml}</td></tr>`;
-    });
-    
-    html += `</tbody></table>`;
+  // Фільтруємо уроки за класом і предметом (якщо обрано конкретний)
+  let filteredLessons = window.state.lessons.filter(l => l.class === cls);
+  if (sub !== "all") {
+    filteredLessons = filteredLessons.filter(l => l.subject === sub);
   }
-  
-  // Повертаємо і HTML, і дані для збереження
-  return { html, data: { title, type, className, studentName, subjectName, generatedHtml: html } };
+
+  // Сортуємо уроки за датою від найстарішого до найновішого
+  filteredLessons.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  if (type === "student") {
+    title = `Звіт успішності: ${stu} (${cls} клас)`;
+    html += `<h3 style="margin-top:0; color:var(--accent);">${window.esc(title)}</h3>`;
+    html += `<p><strong>Предмет:</strong> ${sub === 'all' ? 'Всі предмети' : window.esc(sub)}</p>`;
+    
+    let tableRows = "";
+
+    filteredLessons.forEach(l => {
+      if (l.students && l.students[stu]) {
+        lessonsCount++;
+        const sData = l.students[stu];
+        const dateObj = new Date(l.date);
+        const dateStr = isNaN(dateObj) ? l.date : dateObj.toLocaleDateString("uk-UA");
+        
+        const presence = sData.presence ? "Так" : "<span style='color:var(--danger);font-weight:bold;'>Ні</span>";
+        if (!sData.presence) absenceCount++;
+
+        const work = sData.work ? "✓" : "-";
+        const hw = sData.hw ? "✓" : "-";
+        
+        let gradeHtml = "-";
+        if (sData.grade) {
+          gradesSum += parseInt(sData.grade);
+          gradesCount++;
+          // Стилізація оцінки
+          let gradeColor = "var(--text-primary)";
+          if (sData.grade >= 10) gradeColor = "var(--grade-10)";
+          else if (sData.grade >= 7) gradeColor = "var(--grade-7)";
+          else if (sData.grade >= 4) gradeColor = "var(--grade-4)";
+          else if (sData.grade > 0) gradeColor = "var(--danger)";
+          gradeHtml = `<strong style="color:${gradeColor}">${sData.grade}</strong>`;
+        }
+
+        tableRows += `
+          <tr>
+            <td>${dateStr}</td>
+            <td>${window.esc(l.subject)}</td>
+            <td style="text-align:center;">${presence}</td>
+            <td style="text-align:center;">${work}</td>
+            <td style="text-align:center;">${hw}</td>
+            <td style="text-align:center;">${gradeHtml}</td>
+            <td><small>${window.esc(sData.note || "")}</small></td>
+          </tr>
+        `;
+      }
+    });
+
+    // Блок статистики
+    const avgGrade = gradesCount > 0 ? (gradesSum / gradesCount).toFixed(1) : "Немає";
+    html += `
+      <div style="display:flex; gap:15px; margin-bottom:15px; padding:10px; background:var(--panel); border-radius:6px; border:1px solid var(--border-color);">
+        <div><strong>Середній бал:</strong> <span style="color:var(--accent); font-size:16px;">${avgGrade}</span></div>
+        <div><strong>Всього оцінок:</strong> ${gradesCount}</div>
+        <div><strong>Пропущених уроків:</strong> <span style="color:var(--danger);">${absenceCount}</span></div>
+      </div>
+    `;
+
+    // Сама таблиця
+    if (tableRows === "") {
+      html += `<p style="color: var(--muted)">Немає даних за обраними параметрами.</p>`;
+    } else {
+      html += `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Предмет</th>
+              <th style="text-align:center;">Присутність</th>
+              <th style="text-align:center;">Робота в класі</th>
+              <th style="text-align:center;">Д/З</th>
+              <th style="text-align:center;">Оцінка</th>
+              <th>Примітка</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      `;
+    }
+
+  } else if (type === "class") {
+    // ЗВІТ ПО КЛАСУ
+    title = `Загальний звіт: ${cls} клас`;
+    html += `<h3 style="margin-top:0; color:var(--accent);">${window.esc(title)}</h3>`;
+    html += `<p><strong>Предмет:</strong> ${sub === 'all' ? 'Всі предмети' : window.esc(sub)}</p>`;
+    html += `<p style="color: var(--muted); margin-bottom: 10px;">(Нижче наведено середні бали та кількість пропусків для кожного учня)</p>`;
+
+    const studentsMap = {};
+    (window.state.students[cls] || []).forEach(st => {
+      studentsMap[st] = { gradesSum: 0, gradesCount: 0, absences: 0 };
+    });
+
+    filteredLessons.forEach(l => {
+      if (!l.students) return;
+      Object.entries(l.students).forEach(([stName, sData]) => {
+        if (!studentsMap[stName]) return;
+        if (!sData.presence) studentsMap[stName].absences++;
+        if (sData.grade) {
+          studentsMap[stName].gradesSum += parseInt(sData.grade);
+          studentsMap[stName].gradesCount++;
+        }
+      });
+    });
+
+    let tableRows = "";
+    Object.entries(studentsMap).forEach(([stName, data]) => {
+      const avg = data.gradesCount > 0 ? (data.gradesSum / data.gradesCount).toFixed(1) : "-";
+      tableRows += `
+        <tr>
+          <td>${window.esc(stName)}</td>
+          <td style="text-align:center;"><strong>${avg}</strong></td>
+          <td style="text-align:center;">${data.gradesCount}</td>
+          <td style="text-align:center; color:var(--danger);">${data.absences}</td>
+        </tr>
+      `;
+    });
+
+    if (tableRows === "") {
+      html += `<p style="color: var(--muted)">Немає даних за обраними параметрами.</p>`;
+    } else {
+      html += `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Учень</th>
+              <th style="text-align:center;">Середній бал</th>
+              <th style="text-align:center;">К-ть оцінок</th>
+              <th style="text-align:center;">Пропуски</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      `;
+    }
+  }
+
+  return { html, title };
 }
 
 export function populateSavedReportsList() {
-  const tbody = window.$("#reports-table tbody");
-  if (!tbody) return; 
+  const tbody = window.$("#saved-reports-table tbody");
+  if (!tbody) return;
   
   tbody.innerHTML = "";
+  const reports = window.state.reports || [];
   
-  if (window.state.reports.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" style="color: var(--muted); text-align: center;">Збережених звітів немає.</td></tr>`;
+  if (reports.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--muted)">Збережених звітів немає</td></tr>`;
     return;
   }
-  
+
   // Сортуємо від новіших до старіших
-  const sortedReports = [...window.state.reports].sort((a, b) => b.date.localeCompare(a.date));
-  
+  const sortedReports = [...reports].sort((a, b) => new Date(b.date) - new Date(a.date));
+
   sortedReports.forEach(rep => {
     const tr = document.createElement("tr");
     const repType = rep.type === 'student' ? 'По учню' : 'По класу';
-    const repDate = new Date(rep.date).toLocaleString("uk-UA");
+    const repDate = new Date(rep.date).toLocaleString("uk-UA", {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute:'2-digit'
+    });
     
     tr.innerHTML = `
       <td>${repDate}</td>
-      <td>${window.esc(rep.title)}</td>
+      <td><strong>${window.esc(rep.title)}</strong></td>
       <td>${repType}</td>
       <td>
         <div style="display: flex; gap: 8px;">
@@ -238,12 +362,12 @@ export function populateSavedReportsList() {
     window.$(".btn-del-report", tr).onclick = async () => {
       const confirmed = await window.showCustomConfirm(
         "Видалення звіту",
-        `Видалити звіт "${window.esc(rep.title)}"?`,
+        `Видалити збережений звіт "${window.esc(rep.title)}"?`,
         "Видалити", "Скасувати", true
       );
       if (confirmed) {
         window.state.reports = window.state.reports.filter(r => r.id !== rep.id);
-        window.saveReports();
+        await window.tj.writeJSON(window.tj.getPaths().reportsPath, window.state.reports);
         populateSavedReportsList();
       }
     };
@@ -253,17 +377,18 @@ export function populateSavedReportsList() {
 }
 
 function openSavedReport(reportId) {
-  const report = window.state.reports.find(r => r.id === reportId);
+  const report = (window.state.reports || []).find(r => r.id === reportId);
   if (!report) return;
   
-  const tabId = "report-" + report.id;
-  const tabTitle = `Звіт: ${report.title.substring(0, 20)}...`;
-  
-  window.openTab(tabId, tabTitle, () => {
-    window.areaEl.innerHTML = `
-      <div class="output-box" style="margin-top: 0;">
-        ${report.generatedHtml}
+  const out = window.$("#report-output");
+  if (out) {
+    out.innerHTML = `
+      <div style="margin-bottom: 10px; padding: 10px; background: var(--panel-dark); border-radius: 6px;">
+        <span style="color: var(--muted); font-size: 13px;">📅 Це збережена копія звіту від ${new Date(report.date).toLocaleString("uk-UA")}</span>
       </div>
+      ${report.html}
     `;
-  });
+    // Прокрутка екрану до звіту
+    out.scrollIntoView({ behavior: 'smooth' });
+  }
 }
