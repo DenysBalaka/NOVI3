@@ -1,0 +1,953 @@
+:root {
+  --bg: #1e1f22;
+  --bg-light: #23252b;
+  --panel: #2b2d31;
+  --panel-dark: #1f2125;
+  --accent: #5865F2;
+  --accent-dark: #3b49c8;
+  --muted: #9aa0a6;
+  --text-primary: #e7e9ee;
+  --text-secondary: #cfd2d8;
+  --border-color: #3a3d44;
+  --danger: #e74c3c;
+  --danger-dark: #c0392b;
+
+  /* Кольори для оцінок */
+  --grade-10: #2ecc71; /* Зелений */
+  --grade-7:  #f1c40f; /* Жовтий */
+  --grade-4:  #e67e22; /* Помаранчевий */
+  --grade-1:  #e74c3c; /* Червоний */
+}
+
+* { box-sizing: border-box; font-family: Segoe UI, Arial; }
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text-primary); }
+
+/* === Кастомна смуга прокрутки === */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--panel);
+  border-radius: 10px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-color);
+}
+
+
+/* === Titlebar (Шапка вікна) === */
+.titlebar {
+  height: 40px; background: #15161a; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 10px; -webkit-app-region: drag;
+}
+.titlebar .title { font-weight: bold; }
+.titlebar .controls { display: flex; gap: 6px; -webkit-app-region: no-drag; }
+.ctrl {
+  width: 38px; height: 26px; border-radius: 8px; background: #22232a;
+  border: none; color: var(--text-secondary); cursor: pointer; box-shadow: 0 4px 0 #111;
+}
+.ctrl:hover { background: #2f3138; }
+.ctrl:active { transform: translateY(1px); }
+
+/* === Основний лейаут === */
+.app-container {
+  display: flex;
+  height: calc(100vh - 40px);
+}
+
+/* === Sidebar (Навігація) === */
+.sidebar {
+  width: 240px;
+  background: var(--panel-dark);
+  padding: 14px;
+  border-right: 1px solid #0003;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease;
+}
+.sidebar.collapsed { width: 60px; }
+.sidebar-header {
+  padding: 0 4px 14px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.sidebar.collapsed .sidebar-header { display: none; }
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-size: 14px;
+  margin-bottom: 4px;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.nav-btn:hover { background: var(--panel); color: var(--text-primary); }
+.nav-btn.active { background: var(--accent); color: white; }
+.nav-btn span:first-child { font-size: 20px; width: 24px; text-align: center; }
+
+/* Колапс сайдбару */
+.sidebar.collapsed .nav-btn span:last-child { display: none; }
+.sidebar.collapsed .nav-btn { justify-content: center; }
+
+/* Кнопка згортання */
+.sidebar-footer { 
+  /* margin-top: auto; */ 
+}
+#nav-toggle-btn { background: var(--panel); }
+#nav-toggle-btn:hover { background: var(--border-color); }
+
+/* === Кнопка блокування === */
+.sidebar-lock-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+#nav-lock-btn {
+  background: var(--panel);
+}
+#nav-lock-btn:hover {
+  background: var(--danger-dark);
+  color: white;
+}
+#nav-lock-btn.locked {
+  background: var(--danger);
+  color: white;
+}
+
+
+/* === Main (Основний контент) === */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; 
+  background: var(--bg-light);
+}
+
+/* Привітання */
+.main-header {
+  padding: 24px 32px;
+  border-bottom: 1px solid var(--border-color);
+}
+.main-header h1 { margin: 0; }
+
+/* Вкладки */
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 0 16px;
+  background: var(--bg-light);
+  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto; /* Дозволяє прокрутку вкладок, якщо їх багато */
+}
+/* === НОВЕ: Стиль для вкладки, яку тягнуть === */
+.tab.dragging {
+  opacity: 0.5;
+  background: var(--accent);
+}
+.tab {
+  background: var(--panel);
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-bottom: none;
+  position: relative;
+  top: 1px;
+  white-space: nowrap; /* Щоб текст вкладки не переносився */
+}
+.tab.active {
+  background: var(--bg);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+.tab .x {
+  margin-left: 8px;
+  color: var(--muted);
+  border-radius: 50%;
+  padding: 0 4px;
+}
+.tab .x:hover { background: var(--border-color); color: var(--text-primary); }
+
+/* === Area (Робоча область) === */
+.area {
+  flex: 1;
+  overflow: auto; 
+  padding: 24px 32px;
+  background: var(--bg);
+}
+.area h2, .area h3 { margin-top: 0; }
+
+/* === Елементи UI === */
+.btn {
+  background: var(--accent); border: none; color: #fff;
+  padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  box-shadow: 0 2px 0 var(--accent-dark);
+  transition: .05s;
+  font-size: 14px;
+}
+.btn.ghost { background: #3a3d44; box-shadow: 0 2px 0 #1e1f22; }
+.btn.danger { background: var(--danger); box-shadow: 0 2px 0 var(--danger-dark); }
+.btn:active { transform: translateY(1px); box-shadow: none; }
+.btn:hover { filter: brightness(1.1); }
+.btn:disabled { background: #2b2d31; color: var(--muted); box-shadow: none; cursor: not-allowed; }
+.btn:disabled:hover { filter: none; }
+
+
+.input, select.input, textarea.input {
+  background: var(--bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  padding: 8px;
+  font-size: 14px;
+  width: 100%; 
+  font-family: Segoe UI, Arial; 
+}
+textarea.input {
+  resize: vertical; 
+}
+select.input { padding-right: 24px; } 
+
+
+/* === Зелені галочки === */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  vertical-align: middle;
+  top: -1px;
+}
+input[type="checkbox"]:checked {
+  background: var(--grade-10); /* Зелений колір */
+  border-color: var(--grade-10);
+}
+input[type="checkbox"]:checked::after {
+  content: '✓';
+  color: #000; /* Чорний текст галочки */
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-weight: bold;
+  font-size: 14px;
+}
+
+
+/* === Календар === */
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 16px 16px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+.calendar-nav h3 { margin: 0; }
+.nav-arrow {
+  background: none; border: none; color: var(--text-primary);
+  font-size: 24px; cursor: pointer; padding: 0 12px;
+}
+.nav-arrow:hover { color: var(--accent); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+.cell {
+  background: var(--bg-light);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: border-color 0.1s ease;
+  display: flex;
+  flex-direction: column;
+  height: 90px; 
+}
+.cell:hover { border-color: var(--accent); }
+.cell.other-month { background: var(--bg); color: #555; cursor: default; }
+.cell.other-month:hover { border-color: transparent; }
+.cell.today .date-number {
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+.date-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.date-number { font-size: 16px; font-weight: bold; margin-top: 4px; }
+
+.indicator-dots {
+  margin-top: auto;
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 4px; /* Відстань між крапками та лічильником */
+  height: 10px; /* Для вирівнювання */
+}
+.indicator-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0; /* Щоб крапки не стискались */
+}
+.lesson-count {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: bold;
+  line-height: 1;
+}
+.lesson-dot { background: var(--accent); }
+.note-dot { background: var(--grade-7); }
+.neutral-dot { background: var(--border-color); }
+
+
+/* === Урок === */
+.lesson-header {
+  display: flex;
+  flex-wrap: wrap; 
+  gap: 8px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+.lesson-header .title-input { flex: 1; min-width: 200px; }
+.lesson-table-container {
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+.table, .lesson-table, .report-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th, .lesson-table th, .report-table th {
+  background: var(--panel-dark);
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  position: sticky; top: 0;
+}
+.table td, .lesson-table td, .report-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+.table tbody tr {
+  cursor: pointer;
+}
+.table tbody tr.selected td {
+  background-color: var(--accent);
+  color: white;
+}
+.table tbody tr:not(.selected):hover td {
+  background-color: var(--panel);
+}
+
+
+.lesson-table td {
+  background: var(--bg-light);
+}
+/* Кольори оцінок */
+.grade-input.g10, .grade.g10 { background-color: var(--grade-10); color: #000; }
+.grade-input.g7,  .grade.g7  { background-color: var(--grade-7);  color: #000; }
+.grade-input.g4,  .grade.g4  { background-color: var(--grade-4);  color: #000; }
+.grade-input.g1,  .grade.g1  { background-color: var(--grade-1);  color: #fff; }
+
+
+/* === Загальні блоки для Звітів, Заміток, Тестів === */
+.config-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end; 
+  background: var(--bg-light);
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 24px; 
+}
+.config-box h3 {
+  margin-top: 0;
+  margin-bottom: 0;
+  margin-right: 16px; 
+  align-self: flex-end; 
+}
+.config-box.notes-config-box h3,
+.config-box.tests-config-box h3 {
+  width: 100%;
+  margin-bottom: 16px;
+  align-self: flex-start; 
+}
+
+/* Виправлення ширини списків у Звітах */
+.config-box .form-group {
+   margin-bottom: 0; 
+   flex-grow: 0; /* Не розтягувати */
+   min-width: 180px; /* Базова ширина */
+}
+
+.form-buttons-group {
+  display: flex;
+  gap: 8px;
+  align-self: flex-end; 
+}
+
+.output-box {
+  background: var(--bg-light);
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto; 
+}
+.output-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap; 
+  gap: 10px;
+}
+.output-box-header h3 {
+  margin: 0;
+}
+.output-box-header .actions {
+  display: flex;
+  gap: 8px;
+}
+.filters-box {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.filters-box .form-group {
+  min-width: 200px;
+  flex: 1;
+}
+
+
+/* === Редактор (Учні) (Всі колонки рівні) === */
+.editor-layout { display: flex; gap: 16px; height: calc(100% - 80px); }
+.editor-column {
+  flex: 1; 
+  background: var(--bg-light);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  overflow-x: auto; 
+}
+.editor-subtitle {
+  font-size: 14px;
+  color: var(--muted);
+  margin: -8px 0 8px 0;
+}
+
+.editor-list {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  min-height: 200px; 
+}
+.editor-list-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.editor-list-item:hover { background: var(--panel); }
+.editor-list-item.selected { background: var(--accent); color: white; }
+.item-controls .order-btn {
+  background: none; border: none; color: var(--text-secondary); cursor: pointer;
+}
+.item-controls .order-btn:disabled { color: var(--border-color); cursor: not-allowed; }
+.editor-list-item.selected .order-btn { color: white; }
+
+.editor-textarea {
+  flex: 1;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 8px;
+  resize: none;
+  min-height: 200px; 
+}
+.editor-actions { display: flex; gap: 8px; margin-top: 12px; }
+.editor-actions input { flex: 1; }
+.editor-actions.right { justify-content: flex-end; }
+
+
+/* === Контекстне меню === */
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--panel);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  border: 1px solid var(--border-color);
+  min-width: 200px;
+  padding: 4px;
+}
+.ctx-menu button {
+  display: block; width: 100%;
+  background: none; border: none;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ctx-menu button:hover { background: var(--accent); color: white; }
+.ctx-menu hr { border: none; border-top: 1px solid var(--border-color); margin: 4px 0; }
+
+/* === Модальне вікно (Confirm) === */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#password-prompt-overlay {
+  z-index: 10000; /* Вище, ніж екран блокування */
+}
+.modal-dialog {
+  background: var(--panel);
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  max-width: 450px;
+  width: 100%;
+  border: 1px solid var(--border-color);
+}
+.modal-dialog h3 { margin-top: 0; }
+.modal-actions {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* === Анімація струсу === */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-6px); }
+}
+.modal-dialog.shake {
+  animation: shake 0.4s ease-out;
+}
+
+
+/* === Екран блокування === */
+.lock-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-light);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.lock-overlay h1 {
+  font-size: 60px;
+  margin: 0;
+}
+
+
+/* === Стилі для модального вікна тесту (слайдер) === */
+.modal-dialog .form-group label {
+  font-size: 14px; 
+  color: var(--text-primary); 
+  text-transform: none; 
+}
+#timer-slider {
+  width: 100%;
+  margin-top: 8px;
+  cursor: pointer;
+}
+#timer-slider-label {
+  font-weight: bold;
+  color: var(--accent);
+  text-align: center;
+  min-height: 1.2em;
+  font-size: 16px;
+  margin-top: 4px;
+}
+
+/* === Редактор нотаток (Тулбар) === */
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-light);
+  padding: 6px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+}
+.editor-toolbar .btn.ghost {
+  padding: 4px 8px; /* Робимо кнопки меншими */
+  font-size: 14px;
+  min-width: 32px; /* Мінімальна ширина */
+  text-align: center;
+  box-shadow: none; /* Прибираємо тінь */
+  font-weight: bold;
+}
+.editor-toolbar .btn.ghost:active {
+  transform: translateY(0); /* Вимикаємо 'click' ефект */
+  box-shadow: none;
+}
+.editor-toolbar .btn.ghost.active {
+  background: var(--accent); /* Активний стан (як .btn.active) */
+  color: white;
+}
+.editor-toolbar hr {
+  width: 1px;
+  height: 24px;
+  border: none;
+  background: var(--border-color);
+  margin: 0 4px;
+}
+
+/* === НОВИЙ БЛОК: Cтиль для самого редактора нотаток === */
+.rich-editor {
+  background: var(--bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 10px; /* Відступ, 8px зверху/знизу, 10px з боків */
+  font-size: 16px; 
+  overflow-y: auto;
+  
+  /* Виправлення для contenteditable */
+  outline: none; /* Прибираємо системну рамку при фокусі */
+  transition: border-color 0.1s ease; /* Плавна анімація рамки */
+}
+.rich-editor:focus-within,
+.rich-editor:focus { /* Додаємо :focus для надійності */
+  border-color: var(--accent); /* Підсвічуємо рамку при фокусі */
+}
+/* === КІНЕЦЬ НОВОГО БЛОКУ === */
+
+
+/* === Звіти, Замітки (Стилі для .form-group) === */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+}
+.form-group label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.report-table { font-size: 14px; }
+.report-table td.grade { font-weight: bold; text-align: center; }
+.report-table td.note { color: var(--muted); font-style: italic; }
+.check-pres { color: var(--grade-10); font-weight: bold; text-align: center; }
+.check-abs { color: var(--grade-1); font-weight: bold; text-align: center; }
+
+/* === Список уроків === */
+.lesson-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr; 
+  gap: 16px;
+  align-items: end;
+  background: var(--bg-light);
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.lesson-filters .form-group {
+  min-width: 150px;
+}
+.lesson-filters-buttons {
+  grid-column: 1 / -1; 
+  display: flex;
+  gap: 8px;
+  margin-top: 8px; 
+}
+
+/* === Специфічні стилі для Редактора Тестів === */
+.test-creator-box {
+  width: 100%; 
+  background: var(--bg);
+  padding: 8px;
+  border-radius: 8px;
+  margin-top: 16px; 
+  border: 1px solid var(--border-color);
+  max-height: 400px; 
+  overflow-y: auto; 
+}
+.test-creator-box .question-block {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 8px;
+}
+.test-creator-box .question-block:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+.test-creator-box .question-header {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end; 
+}
+.test-creator-box .question-header textarea.input {
+  flex: 1;
+  resize: vertical;
+  min-height: 40px; 
+  height: 50px;
+}
+.test-creator-box .points-input {
+  text-align: center;
+  font-weight: bold;
+}
+.test-creator-box .question-header .form-group {
+  margin-bottom: 0; 
+}
+.test-creator-box .question-header .form-group label {
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.test-creator-box .options-list {
+  padding-left: 28px;
+  margin-top: 8px;
+}
+.test-creator-box .option-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+.test-creator-box .option-row .input {
+  flex: 1; 
+}
+.test-creator-box .option-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap; 
+}
+
+
+/* === Стилі для таймера тесту === */
+.test-run-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.test-run-header h3 {
+  margin: 0;
+}
+.test-timer-bar {
+  width: 100%;
+  height: 30px;
+  background: var(--panel-dark);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+.test-timer-progress {
+  height: 100%;
+  width: 100%; 
+  border-radius: 8px;
+  transition: width 1s linear, background-color 0.5s ease;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.test-timer-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-weight: bold;
+  text-shadow: 0 0 5px rgba(0,0,0,0.7);
+}
+/* Кольори таймера */
+.g-100 { background-color: var(--grade-10); } /* > 75% */
+.g-75 { background-color: #58B95E; } /* 75%-50% */
+.g-50 { background-color: var(--grade-7); } /* 50%-25% */
+.g-25 { background-color: var(--grade-1); } /* < 25% */
+
+
+/* === Стилі: Сторінка Експорту === */
+.export-section {
+  background: var(--bg-light);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  /* === НОВЕ: Розділяємо інформацію та дії === */
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.export-section-info {
+  flex: 1; /* Займає вільний простір */
+  min-width: 300px; /* Мінімальна ширина для опису */
+}
+.export-section-info h3 {
+  margin-top: 0;
+}
+.export-section-info p {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: -8px;
+  margin-bottom: 16px;
+}
+.export-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end; 
+}
+.export-filters .form-group {
+  min-width: 0; 
+  width: auto;    
+  flex: none;     
+}
+.export-filters .form-group .input {
+  width: auto;      
+  min-width: 180px; 
+}
+.export-filters .form-group.date-filter .input {
+  min-width: 160px;
+}
+.export-filters .form-group.test-filter .input {
+  min-width: 300px;
+}
+
+.export-section-actions {
+  display: flex;
+  flex-direction: column; /* Кнопки одна під одною */
+  gap: 10px;                   
+  flex-shrink: 0; /* Не стискати блок кнопок */
+}
+.export-section-actions .btn {
+  width: 240px; /* Фіксована ширина кнопок */
+}
+
+/* === ВИПРАВЛЕННЯ: Стилі Профілю === */
+.titlebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 10px;
+  -webkit-app-region: no-drag; /* Дозволяє клікати */
+  padding: 4px;
+  border-radius: 20px;
+  transition: background-color 0.1s ease;
+  /* cursor: pointer; -- ВИДАЛЕНО ЗВІДСИ */
+}
+/* :hover ВИДАЛЕНО ЗВІДСИ */
+
+.titlebar-profile .profile-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.titlebar-profile .profile-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+}
+
+/* Кнопка "Увійти" у Title Bar (до входу) */
+.titlebar-profile.logged-out {
+  background: var(--accent);
+  color: white;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer; /* ДОДАНО СЮДИ */
+}
+.titlebar-profile.logged-out:hover {
+  background: var(--accent-dark);
+}
+
+/* === Стилі для свят у календарі === */
+.date-month.holiday {
+  color: var(--grade-7); /* Жовтий колір для місяця */
+  font-weight: bold;
+}
+
+/* Додамо стиль для спливаючої підказки (стандартний title браузера не стилізується, 
+   але ми можемо зробити кастомний, якщо захочемо пізніше. 
+   Поки що покладаємось на стандартний атрибут title) */
+/* === ФАЙЛ: styles.css (Додати в кінець) === */
+
+/* === НОВИЙ СТИЛЬ: Горизонтальний form-group для чекбоксів === */
+.form-group.horizontal {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0; /* Скидаємо стандартний відступ */
+}
+.form-group.horizontal label {
+  /* Скидаємо стиль заголовка (uppercase, muted color) */
+  text-transform: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+.form-group.horizontal input[type="checkbox"] {
+  width: auto; /* Запобігаємо розтягуванню */
+}

@@ -1,0 +1,62 @@
+{
+  "name": "teacherjournal-portable",
+  "version": "1.1.0",
+  "description": "TeacherJournal portable Electron app (no bundlers)",
+  "main": "electron/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "docx": "^8.1.3",
+    "electron-updater": "^6.6.2",
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "electron": "^25.9.8",
+    "electron-builder": "^24.6.0"
+  },
+  "build": {
+    "appId": "com.teacher.journal.portable",
+    "productName": "TeacherJournal",
+    "files": [
+      "electron/**",
+      "assets/**",
+      "board_app/**",
+      "settings_app/**",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "package.json",
+      "navigation.js",
+      "utils.js",
+      "module_home.js",
+      "module_lessons.js",
+      "module_students.js",
+      "module_reports.js",
+      "module_tests.js",
+      "module_notes.js",
+      "module_export.js"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "TeacherJournal-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TeacherJournal"
+    }
+  }
+}

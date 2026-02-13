@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; img-src 'self' data: https://lh3.googleusercontent.com;">
+  
+  <title>Електронний журнал</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div class="titlebar">
+    <div class="title" style="display: flex; align-items: center;">
+      <img src="assets/icon.png" style="height: 22px; margin-right: 8px;">
+      <b>Електронний журнал</b>
+    </div>
+    
+    <div class="controls">
+      <div class="titlebar-profile" id="titlebar-profile" style="display: none;"></div>
+      <button class="ctrl" id="win-min">—</button>
+      <button class="ctrl" id="win-max">▢</button>
+      <button class="ctrl" id="win-close">✕</button>
+    </div>
+  </div>
+
+  <div class="app-container">
+
+    <nav class="sidebar" id="nav-sidebar">
+      
+      <div class="sidebar-footer">
+        <button class="nav-btn" id="nav-toggle-btn">
+          <span>←</span>
+          <span>Згорнути</span>
+        </button>
+      </div>
+
+      <div class="sidebar-header">Навігація</div>
+      <button class="nav-btn active" id="nav-home">
+        <span>🏠</span>
+        <span>Головна</span>
+      </button>
+      <button class="nav-btn" id="nav-lessons">
+        <span>📚</span>
+        <span>Уроки</span>
+      </button>
+      <button class="nav-btn" id="nav-students">
+        <span>👥</span>
+        <span>Учні</span>
+      </button>
+      <button class="nav-btn" id="nav-reports">
+        <span>📊</span>
+        <span>Звіти</span>
+      </button>
+      <button class="nav-btn" id="nav-tests">
+        <span>📝</span>
+        <span>Тести</span>
+      </button>
+      
+      <button class="nav-btn" id="nav-board">
+        <span>🎨</span>
+        <span>Дошка</span>
+      </button>
+      
+      <button class="nav-btn" id="nav-notes">
+        <span>🗒️</span>
+        <span>Замітки</span>
+      </button>
+      
+      <div class="sidebar-header" style="margin-top: 16px;">Інструменти</div>
+      <button class="nav-btn" id="nav-export-menu-btn">
+        <span>📤</span>
+        <span>Експорт</span>
+      </button>
+      <button class="nav-btn" id="btn-settings">
+        <span>⚙️</span>
+        <span>Налаштування</span>
+      </button>
+
+      <div class="sidebar-lock-footer">
+        <button class="nav-btn" id="nav-lock-btn">
+          <span>🔓</span>
+          <span>Блокувати</span>
+        </button>
+      </div>
+
+    </nav>
+
+    <main class="main">
+      
+      <div class="main-header" id="main-header-greeting">
+        <h1>Доброго дня, вчителю!</h1>
+      </div>
+
+      <div class="tabs" id="tabs" style="display: none;"></div>
+
+      <div class="area" id="area"></div>
+
+    </main>
+
+  </div>
+  
+  <script src="renderer.js" type="module"></script>
+</body>
+</html>
