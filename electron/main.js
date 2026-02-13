@@ -273,42 +273,157 @@ ipcMain.handle("tj:write-xlsx", async (e, p, sheetsData) => {
 });
 
 // Експорт Тестів (DOCX) (без змін, помилку дублювання виправлено минулого разу)
-ipcMain.handle("tj:export-test-docx", async (e, p, test, mode) => {
+ipcMain.handle("tj:export-test-docx", async (e, p, arg1, arg2) => {
   try {
-    const children = [];
-    children.push(new Paragraph({ text: test.title, heading: "Heading1" }));
+    let testTitle = "Тест";
+    let questionsList = [];
+    let isTeacher = false;
 
-    for (const [qi, q] of test.questions.entries()) {
-      children.push(new Paragraph({ text: q.text, style: "ListParagraph" }));
-      
-      if (q.image) {
-        try {
-          const base64Data = q.image.split(",")[1];
-          children.push(new Paragraph({
-            children: [ImageRun.fromBase64(base64Data, {
-              transformation: { width: 300, height: 200 },
-            })]
-          }));
-        } catch (imgErr) { console.error("Failed to add image to DOCX", imgErr); }
-      }
-
-      if (q.type === 'text') {
-        children.push(new Paragraph({ text: "\n\n____________________________________", style: "Body" }));
-      } else if (q.type === 'radio' || q.type === 'check') {
-        for (const [opti, opt] of q.options.entries()) {
-          const prefix = (mode === 'answers' && opt.correct) ? "[X]" : "[ ]";
-          children.push(new Paragraph({ text: `    ${prefix} ${opt.text}`, style: "Body" }));
+    // 1. РОЗУМНИЙ ПАРСЕР ДАНИХ (вгадуємо, що саме передав додаток)
+    if (arg1 && typeof arg1 === 'object' && Array.isArray(arg1.questions)) {
+        // Додаток передав весь об'єкт тесту повністю + режим
+        testTitle = arg1.title || "Тест";
+        questionsList = arg1.questions;
+        isTeacher = arg2 === true || arg2 === "teacher";
+    } else if (typeof arg1 === 'string') {
+        testTitle = arg1;
+        if (Array.isArray(arg2)) {
+            questionsList = arg2; 
+        } else if (arg2 && typeof arg2 === 'object') {
+            questionsList = arg2.questions || Object.values(arg2);
+        } else if (typeof arg2 === 'string') {
+            try {
+                let parsed = JSON.parse(arg2);
+                questionsList = Array.isArray(parsed) ? parsed : (parsed.questions || []);
+            } catch(err) {}
         }
-      }
     }
 
-    const doc = new Document({ sections: [{ children }] });
+    // Відсіюємо порожні елементи
+    questionsList = questionsList.filter(q => q && typeof q === 'object');
+
+    const docElements = [];
+
+    // 2. Шапка тесту
+    docElements.push(new Paragraph({
+      children: [new TextRun({ text: testTitle, bold: true, size: 32 })],
+      alignment: "center",
+      spacing: { after: 300 }
+    }));
+
+    // 3. Поля ПІБ або Позначка для вчителя
+    if (!isTeacher) {
+        docElements.push(new Paragraph({
+          children: [
+            new TextRun({ text: "ПІБ: ________________________________________   Клас: _______   Дата: ________", size: 24 })
+          ],
+          spacing: { after: 600 }
+        }));
+    } else {
+        docElements.push(new Paragraph({
+          children: [
+            new TextRun({ text: "ВАРІАНТ ДЛЯ ВЧИТЕЛЯ (з відповідями)", bold: true, color: "FF0000", size: 24 })
+          ],
+          spacing: { after: 600 },
+          alignment: "center"
+        }));
+    }
+
+    // 4. Формуємо список питань
+    questionsList.forEach((q, index) => {
+      let rawText = q.text || q.question || q.title || "Питання без тексту";
+      let cleanText = String(rawText).replace(/^\d+[\.\)]\s*/, '');
+
+      // Текст питання
+      docElements.push(new Paragraph({
+        children: [
+          new TextRun({ text: `${index + 1}. `, bold: true, size: 24 }),
+          new TextRun({ text: cleanText, size: 24 })
+        ],
+        spacing: { before: 240, after: 120 }
+      }));
+
+      // ФОТОГРАФІЯ (якщо є)
+      let imgDataUrl = q.image || q.img || q.picture || q.photo;
+      if (imgDataUrl && typeof imgDataUrl === 'string' && imgDataUrl.includes('base64,')) {
+         try {
+           const base64Data = imgDataUrl.split('base64,')[1];
+           const imageBuffer = Buffer.from(base64Data, 'base64');
+           docElements.push(new Paragraph({
+             children: [
+               new ImageRun({
+                 data: imageBuffer,
+                 transformation: { width: 300, height: 200 } // Стандартний розмір фото в Word
+               })
+             ],
+             alignment: "center",
+             spacing: { after: 120 }
+           }));
+         } catch(err) {
+             console.error("Не вдалося обробити фото", err);
+         }
+      }
+
+      // Варіанти відповідей
+      let options = q.options || q.answers || q.variants || [];
+      if (Array.isArray(options) && options.length > 0) {
+        const letters = ["А", "Б", "В", "Г", "Д", "Е", "Є", "Ж", "З", "И", "І"];
+
+        options.forEach((opt, optIndex) => {
+          const letter = letters[optIndex] || "-";
+
+          let optText = "";
+          let isCorrect = false;
+
+          if (typeof opt === 'string') {
+              optText = opt;
+          } else if (typeof opt === 'object') {
+              optText = opt.text || opt.value || opt.answer || "";
+              isCorrect = opt.correct === true || opt.isCorrect === true;
+          }
+
+          let runProps = { size: 24 };
+          let bulletText = `    ${letter}) `;
+
+          // Якщо режим вчителя і це правильна відповідь - виділяємо!
+          if (isTeacher && isCorrect) {
+              runProps.bold = true;
+              runProps.color = "008000"; // Зелений колір
+              optText += "  ✓ Правильна";
+          }
+
+          docElements.push(new Paragraph({
+            children: [
+              new TextRun({ text: bulletText, bold: true, size: 24 }),
+              new TextRun({ text: String(optText), ...runProps })
+            ],
+            spacing: { after: 80 }
+          }));
+        });
+      } else {
+         // Лінії для відкритих питань (якщо немає варіантів відповідей)
+         docElements.push(new Paragraph({
+            children: [new TextRun({ text: "    Відповідь: _________________________________________________________", size: 24 })],
+            spacing: { after: 200 }
+         }));
+         if (!isTeacher) {
+             docElements.push(new Paragraph({
+                children: [new TextRun({ text: "    ____________________________________________________________________", size: 24 })],
+                spacing: { after: 200 }
+             }));
+         }
+      }
+    });
+
+    const doc = new Document({ sections: [{ properties: {}, children: docElements }] });
     const buffer = await Packer.toBuffer(doc);
-    await fs.promises.writeFile(p, buffer);
+    const fs = require('fs');
+    fs.writeFileSync(p, buffer);
+
     return true;
   } catch (err) {
-    console.error(err);
-    return { error: err.message };
+    console.error("Помилка експорту Docx:", err);
+    return false;
   }
 });
 
