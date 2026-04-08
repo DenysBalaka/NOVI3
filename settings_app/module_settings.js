@@ -1,20 +1,92 @@
 // === ФАЙЛ: settings_app/module_settings.js ===
 import { hashPassword } from '../utils.js';
 
-// Словник для красивих назв кнопок (для списку)
 const navNames = {
   'nav-lessons': '📚 Уроки',
   'nav-students': '👥 Учні',
   'nav-reports': '📊 Звіти',
   'nav-tests': '📝 Тести',
   'nav-board': '🎨 Дошка',
-  'nav-notes': '🗒️ Замітки'
+  'nav-notes': '🗒️ Замітки',
+  'nav-schedule': '📅 Розклад',
+  'nav-classjournal': '📖 Класний журнал',
+  'nav-curriculum': '📋 КТП'
 };
 
+const CATEGORIES = [
+  "Спеціаліст", "Спеціаліст II категорії",
+  "Спеціаліст I категорії", "Спеціаліст вищої категорії"
+];
+
 export function renderSettings() {
-  
-  // === Блоки з вашого сніпету ===
-  
+  const s = window.state.settings;
+  const tp = s.teacherProfile || {};
+  const sem = s.semesters || [];
+
+  let teacherProfileBlock = `
+    <div class="export-section-info">
+      <h3>Профіль вчителя</h3>
+      <p>Ваші дані використовуються у заголовках звітів та експорті.</p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 600px; margin-top: 12px;">
+        <div class="form-group">
+          <label for="tp-fullname">ПІБ</label>
+          <input class="input" id="tp-fullname" placeholder="Іванов Іван Іванович" value="${window.esc(tp.fullName || "")}">
+        </div>
+        <div class="form-group">
+          <label for="tp-school">Навчальний заклад</label>
+          <input class="input" id="tp-school" placeholder="Назва школи" value="${window.esc(tp.school || "")}">
+        </div>
+        <div class="form-group">
+          <label for="tp-position">Посада</label>
+          <input class="input" id="tp-position" placeholder="Вчитель" value="${window.esc(tp.position || "")}">
+        </div>
+        <div class="form-group">
+          <label for="tp-category">Кваліфікаційна категорія</label>
+          <select class="input" id="tp-category">
+            <option value="">-- Не вказано --</option>
+            ${CATEGORIES.map(c => `<option value="${window.esc(c)}" ${tp.category === c ? 'selected' : ''}>${window.esc(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="tp-title">Педагогічне звання</label>
+          <input class="input" id="tp-title" placeholder="Наприклад: Старший вчитель" value="${window.esc(tp.title || "")}">
+        </div>
+        <div class="form-group">
+          <label for="tp-experience">Стаж (років)</label>
+          <input class="input" id="tp-experience" type="number" min="0" max="60" placeholder="0" value="${window.esc(tp.experience || "")}">
+        </div>
+      </div>
+      <div id="tp-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
+    </div>
+  `;
+
+  let schoolYearBlock = `
+    <div class="export-section-info">
+      <h3>Навчальний рік та семестри</h3>
+      <p>Визначає діапазони дат для фільтрації та підсумків.</p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 600px; margin-top: 12px;">
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label for="sy-year">Навчальний рік</label>
+          <input class="input" id="sy-year" placeholder="2025-2026" value="${window.esc(s.schoolYear || "")}">
+        </div>
+        ${sem.map((sem_item, idx) => `
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label><strong>${window.esc(sem_item.name)}</strong></label>
+          </div>
+          <div class="form-group">
+            <label for="sem-start-${idx}">Початок</label>
+            <input class="input" id="sem-start-${idx}" type="date" value="${sem_item.startDate || ''}">
+          </div>
+          <div class="form-group">
+            <label for="sem-end-${idx}">Кінець</label>
+            <input class="input" id="sem-end-${idx}" type="date" value="${sem_item.endDate || ''}">
+          </div>
+        `).join('')}
+      </div>
+      <div id="sy-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
+    </div>
+  `;
+
   let authBlock = `
     <div class="export-section-info">
       <h3>Хмарна синхронізація (Google Drive)</h3>
@@ -22,7 +94,7 @@ export function renderSettings() {
     </div>
     <div id="google-auth-status"></div>
   `;
-  
+
   let backupBlock = `
     <div class="export-section-info">
       <h3>Локальний Архів <span style="font-weight: normal; font-size: 14px; color: var(--muted);">(для перенесення даних на інший пристрій без Google-авторизації)</span></h3>
@@ -34,7 +106,6 @@ export function renderSettings() {
     </div>
   `;
 
-  // === ВАШ БЛОК ПЕРСОНАЛІЗАЦІЇ ===
   let menuOrderBlock = `
     <div class="export-section-info">
       <h3>Персоналізація меню</h3>
@@ -43,20 +114,18 @@ export function renderSettings() {
       <div id="nav-order-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
     </div>
   `;
-  
-  // === ВАШ БЛОК ПАРОЛЮ ===
+
   let passwordBlock = `
     <div class="export-section-info">
       <h3>Безпека <span style="font-weight: normal; font-size: 14px; color: var(--muted);">(для блокування доступу до програми)</span></h3>
       <p>Пароль вчителя (4 цифри). Використовується для швидкого блокування екрану.</p>
       <div class="form-group" style="max-width: 250px;">
-        <input type="password" class="input" id="teacher-pass" maxlength="4" value="" placeholder="${window.state.settings.teacherPassword ? '••••' : '****'}">
+        <input type="password" class="input" id="teacher-pass" maxlength="4" value="" placeholder="${s.teacherPassword ? '••••' : '****'}">
         <div id="save-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
       </div>
     </div>
   `;
-  
-  // === ВАШ БЛОК ПАПКИ ДАНИХ ===
+
   let dataFolderBlock = `
     <div class="export-section-info">
       <h3>Локальна папка даних <span style="font-weight: normal; font-size: 14px; color: var(--muted);">(для ручної синхронізації через сторонні сервіси)</span></h3>
@@ -67,10 +136,17 @@ export function renderSettings() {
     </div>
   `;
 
-  // === ВАШ МАКЕТ INNERHTML ===
   window.areaEl.innerHTML = `
     <h2>Налаштування</h2>
-    
+
+    <div class="export-section">
+      ${teacherProfileBlock}
+    </div>
+
+    <div class="export-section">
+      ${schoolYearBlock}
+    </div>
+
     <div class="export-section">
       ${menuOrderBlock}
     </div>
@@ -94,10 +170,9 @@ export function renderSettings() {
 
   // === Логіка ===
 
-  // 1. Логіка для Google Auth
   updateGoogleAuthStatusUI();
-  
-  // 2. Логіка для Бекапів
+
+  // Бекапи
   window.$("#btn-backup-create").onclick = async () => {
     const res = await window.tj.createBackup();
     if (res && !res.error) await window.showCustomAlert("Успіх", "Резервну копію створено.");
@@ -110,7 +185,7 @@ export function renderSettings() {
     }
   };
 
-  // 3. Логіка для Паролю (з вашого сніпету)
+  // Пароль
   const passInput = window.$("#teacher-pass");
   const feedbackEl = window.$("#save-feedback");
   passInput.oninput = window.debounce(async () => {
@@ -132,19 +207,56 @@ export function renderSettings() {
     }
   }, 500);
 
-  // 4. Логіка для Порядку Меню (Автозбереження)
-  renderNavOrderList(); // Рендеримо список
+  // Профіль вчителя
+  const tpFields = ['tp-fullname', 'tp-school', 'tp-position', 'tp-category', 'tp-title', 'tp-experience'];
+  const tpKeys = ['fullName', 'school', 'position', 'category', 'title', 'experience'];
+  const tpFeedback = window.$("#tp-feedback");
+  tpFields.forEach((fieldId, idx) => {
+    const el = window.$("#" + fieldId);
+    if (!el) return;
+    const handler = window.debounce(() => {
+      if (!window.state.settings.teacherProfile) window.state.settings.teacherProfile = {};
+      window.state.settings.teacherProfile[tpKeys[idx]] = el.value.trim();
+      window.saveSettings();
+      tpFeedback.textContent = "Збережено!";
+      setTimeout(() => tpFeedback.textContent = "", 2000);
+    }, 600);
+    el.oninput = handler;
+    el.onchange = handler;
+  });
+
+  // Навчальний рік та семестри
+  const syFeedback = window.$("#sy-feedback");
+  const saveSY = window.debounce(() => {
+    window.saveSettings();
+    syFeedback.textContent = "Збережено!";
+    setTimeout(() => syFeedback.textContent = "", 2000);
+  }, 600);
+
+  const syYearInput = window.$("#sy-year");
+  if (syYearInput) {
+    syYearInput.oninput = () => {
+      window.state.settings.schoolYear = syYearInput.value.trim();
+      saveSY();
+    };
+  }
+
+  sem.forEach((_, idx) => {
+    const startEl = window.$("#sem-start-" + idx);
+    const endEl = window.$("#sem-end-" + idx);
+    if (startEl) startEl.onchange = () => { window.state.settings.semesters[idx].startDate = startEl.value; saveSY(); };
+    if (endEl) endEl.onchange = () => { window.state.settings.semesters[idx].endDate = endEl.value; saveSY(); };
+  });
+
+  renderNavOrderList();
 }
 
-/**
- * Рендерить список кнопок меню для сортування (drag-and-drop)
- */
 function renderNavOrderList() {
   const container = window.$("#settings-nav-order-list"); 
   if (!container) return;
   
   container.innerHTML = "";
-  const order = window.state.settings.navOrder || ['nav-lessons', 'nav-students', 'nav-reports', 'nav-tests', 'nav-board', 'nav-notes'];
+  const order = window.state.settings.navOrder || ['nav-lessons', 'nav-students', 'nav-reports', 'nav-tests', 'nav-board', 'nav-notes', 'nav-schedule', 'nav-classjournal', 'nav-curriculum'];
 
   order.forEach(id => {
     const name = navNames[id] || id; 
@@ -170,7 +282,6 @@ function renderNavOrderList() {
     container.lastChild.style.borderBottom = "none";
   }
   
-  // Логіка перетягування
   let draggedItem = null;
   
   container.addEventListener('dragstart', (e) => {
@@ -219,9 +330,6 @@ function renderNavOrderList() {
   });
 }
 
-/**
- * Оновлює UI для блоку Google Auth (з "запобіжником")
- */
 export async function updateGoogleAuthStatusUI() {
   const container = window.$("#google-auth-status");
   if (!container) return; 
@@ -262,7 +370,6 @@ export async function updateGoogleAuthStatusUI() {
     
     window.$("#btn-cloud-logout").onclick = window.handleGoogleLogout;
     
-    // === "ЗАПОБІЖНИК" (залишається) ===
     window.$("#btn-cloud-upload").onclick = async () => {
       const btn = window.$("#btn-cloud-upload"); btn.disabled = true; btn.textContent = "⏳ Вивантаження...";
       const res = await window.tj.cloudSyncUpload();
@@ -295,9 +402,6 @@ export async function updateGoogleAuthStatusUI() {
   }
 }
 
-/**
- * Оновлює поле "Остання копія" (з виправленням 'modifiedTime')
- */
 async function updateCloudInfo() {
   const el = window.$("#cloud-info-text");
   if (!el) return;
@@ -306,23 +410,14 @@ async function updateCloudInfo() {
     const meta = await window.tj.googleGetBackupMeta();
     if (meta?.error) throw new Error(meta.error);
     if (meta && meta.id) {
-      
       const d = new Date(meta.modifiedTime); 
-
       if (isNaN(d.getTime())) {
         el.textContent = "Помилка формату дати.";
-        console.warn("Invalid date received from getBackupMeta:", meta.modifiedTime);
         return;
       }
-      
-      const dateStr = d.toLocaleDateString("uk-UA", {
-        day: '2-digit', month: '2-digit', year: 'numeric'
-      });
-      const timeStr = d.toLocaleTimeString("uk-UA", {
-        hour: '2-digit', minute: '2-digit'
-      });
+      const dateStr = d.toLocaleDateString("uk-UA", { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const timeStr = d.toLocaleTimeString("uk-UA", { hour: '2-digit', minute: '2-digit' });
       el.textContent = `Остання копія: ${dateStr}, ${timeStr}`;
-      
     } else {
       el.textContent = "У хмарі ще немає резервних копій.";
     }

@@ -149,6 +149,10 @@ export function renderHome(){
     const notesOnDay = Object.values(window.state.notes).filter(n => n.date === dateKey);
     const noteCount = notesOnDay.length;
     
+    const dayIdx = (currentDate.getDay() + 6) % 7;
+    const scheduleItems = (window.state.schedule || []).filter(s => s.dayOfWeek === dayIdx);
+    const schedCount = scheduleItems.length;
+
     let indicatorHtml = '<div class="indicator-dots">';
     
     if (lessonCount > 0) {
@@ -156,13 +160,16 @@ export function renderHome(){
       indicatorHtml += `<span class="lesson-count">(${lessonCount})</span>`;
     }
     
-    // ОНОВЛЕННЯ: Показуємо крапку та лічильник для заміток
     if (noteCount > 0) {
       indicatorHtml += '<div class="indicator-dot note-dot"></div>';
       indicatorHtml += `<span class="lesson-count">(${noteCount})</span>`;
     }
+
+    if (schedCount > 0 && dayIdx < 5) {
+      indicatorHtml += '<div class="indicator-dot" style="background:var(--accent);"></div>';
+    }
     
-    if (lessonCount === 0 && noteCount === 0) {
+    if (lessonCount === 0 && noteCount === 0 && schedCount === 0) {
       indicatorHtml += '<div class="indicator-dot neutral-dot"></div>';
     }
     indicatorHtml += '</div>';

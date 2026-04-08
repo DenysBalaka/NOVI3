@@ -27,7 +27,9 @@ function ensureDirs(){
     classOrderPath: path.join(root, "classOrder.json"),
     reportsPath: path.join(root, "reports.json"),
     attemptsPath: path.join(root, "attempts.json"),
-    boardsPath: path.join(root, "boards.json")
+    boardsPath: path.join(root, "boards.json"),
+    schedulePath: path.join(root, "schedule.json"),
+    curriculumPath: path.join(root, "curriculum.json")
   };
 }
 const paths = ensureDirs();
@@ -251,9 +253,22 @@ ipcMain.handle("tj:show-save-dialog", async (e, options) => {
 });
 // =======================================
 
+function isExportPathSafe(targetPath) {
+  if (!targetPath || typeof targetPath !== "string") return false;
+  const resolved = path.resolve(targetPath);
+  const home = app.getPath("home");
+  const desktop = app.getPath("desktop");
+  const docs = app.getPath("documents");
+  const downloads = app.getPath("downloads");
+  return resolved.startsWith(paths.root + path.sep) || resolved === paths.root
+    || resolved.startsWith(desktop + path.sep) || resolved.startsWith(docs + path.sep)
+    || resolved.startsWith(downloads + path.sep);
+}
+
 ipcMain.handle("tj:write-base64-file", async (e, p, base64) => {
   try {
     if (!p || typeof p !== "string") return { error: "Invalid path" };
+    if (!isExportPathSafe(p)) return { error: "Path rejected" };
     if (!base64 || typeof base64 !== "string") return { error: "Invalid data" };
     const cleaned = base64.replace(/^data:.*?;base64,/, "");
     const buf = Buffer.from(cleaned, "base64");
@@ -266,6 +281,7 @@ ipcMain.handle("tj:write-base64-file", async (e, p, base64) => {
 
 ipcMain.handle("tj:write-csv", async (e, p, txt) => {
   try {
+    if (!isExportPathSafe(p)) return { error: "Path rejected" };
     await fs.promises.writeFile(p, "\uFEFF" + txt, "utf-8");
     return true;
   } catch (err) { return { error: err.message }; }
@@ -274,6 +290,7 @@ ipcMain.handle("tj:write-csv", async (e, p, txt) => {
 // === ЗМІНА №2: Оновлено логіку ширини колонок для XLSX ===
 ipcMain.handle("tj:write-xlsx", async (e, p, data) => {
   try {
+    if (!isExportPathSafe(p)) return { error: "Path rejected" };
     const workbook = new ExcelJS.Workbook();
 
     // Допоміжна функція для стилізації аркуша
@@ -343,6 +360,7 @@ ipcMain.handle("tj:write-xlsx", async (e, p, data) => {
 // Експорт Тестів (DOCX) (без змін, помилку дублювання виправлено минулого разу)
 ipcMain.handle("tj:export-test-docx", async (e, p, arg1, arg2) => {
   try {
+    if (!isExportPathSafe(p)) return { error: "Path rejected" };
     let testTitle = "Тест";
     let questionsList = [];
     let isTeacher = false;
@@ -524,6 +542,8 @@ function createZipBackup(targetPath) {
     addFileIfExists(paths.reportsPath);
     addFileIfExists(paths.attemptsPath);
     addFileIfExists(paths.boardsPath);
+    addFileIfExists(paths.schedulePath);
+    addFileIfExists(paths.curriculumPath);
 
     if (fs.existsSync(paths.files)) {
       zip.addLocalFolder(paths.files, "files");

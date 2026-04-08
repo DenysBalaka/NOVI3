@@ -1,5 +1,5 @@
 // === ФАЙЛ: renderer.js ===
-import { debounce, showCustomAlert, showCustomConfirm, showTestStartDialog, createContextMenu, closeContextMenu, showTextEditContextMenu, showPasswordPrompt, sanitizeHTML, hashPassword } from './utils.js';
+import { debounce, showCustomAlert, showCustomConfirm, showTestStartDialog, createContextMenu, closeContextMenu, showTextEditContextMenu, showPasswordPrompt, sanitizeHTML, hashPassword, verifyPassword } from './utils.js';
 import { openTab, setActive, closeTab } from './navigation.js';
 import { renderHome, showCalendarContextMenu } from './module_home.js';
 import { renderLesson, renderLessonsList, openOrCreateLesson, renderNewLessonDialog, showLessonListContextMenu } from './module_lessons.js';
@@ -10,6 +10,9 @@ import { renderNotesPage } from './module_notes.js';
 import { renderSettings, updateGoogleAuthStatusUI } from './settings_app/module_settings.js';
 import { renderExportPage } from './module_export.js';
 import { renderBoardPage, createNewBoard } from './board_app/module_board.js';
+import { renderSchedulePage } from './module_schedule.js';
+import { renderClassJournalPage } from './module_class_journal.js';
+import { renderCurriculumPage } from './module_curriculum.js';
 
 window.$ = (s,el=document) => el.querySelector(s);
 window.$$ = (s,el=document) => Array.from(el.querySelectorAll(s));
@@ -45,6 +48,9 @@ window.renderNotesPage = renderNotesPage; window.renderSettings = renderSettings
 window.renderBoardPage = renderBoardPage; window.createNewBoard = createNewBoard;
 window.showCalendarContextMenu = showCalendarContextMenu; window.showLessonListContextMenu = showLessonListContextMenu;
 window.sanitizeHTML = sanitizeHTML;
+window.renderSchedulePage = renderSchedulePage;
+window.renderClassJournalPage = renderClassJournalPage;
+window.renderCurriculumPage = renderCurriculumPage;
 
 // === "ЗАПОБІЖНИК" (Нова функція) ===
 async function handleAutoSyncResult(res, isLoginAttempt = false) {
@@ -55,7 +61,7 @@ async function handleAutoSyncResult(res, isLoginAttempt = false) {
     if (cloudMeta && cloudMeta.id) {
       const confirmed = await window.showCustomConfirm(
         "Знайдено хмарну копію",
-        `Ваші локальні дані порожні, але на Google Drive є резервна копія (від ${new Date(cloudMeta.date).toLocaleString("uk-UA")}).\n\nБажаєте завантажити її і відновити дані?`,
+        `Ваші локальні дані порожні, але на Google Drive є резервна копія (від ${new Date(cloudMeta.modifiedTime).toLocaleString("uk-UA")}).\n\nБажаєте завантажити її і відновити дані?`,
         "Так, завантажити",
         "Ні, пропустити",
         false 
@@ -92,22 +98,44 @@ async function init(){
   window.areaEl = window.$("#area");
   window.paths = await window.tj.getPaths();
   
+  const DEFAULT_SETTINGS = {
+    teacherPassword: null,
+    autoSync: true,
+    navOrder: ['nav-lessons', 'nav-students', 'nav-reports', 'nav-tests', 'nav-board', 'nav-notes', 'nav-schedule', 'nav-classjournal', 'nav-curriculum'],
+    schoolYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+    semesters: [
+      { name: "I семестр", startDate: `${new Date().getFullYear()}-09-01`, endDate: `${new Date().getFullYear()}-12-31` },
+      { name: "II семестр", startDate: `${new Date().getFullYear() + 1}-01-15`, endDate: `${new Date().getFullYear() + 1}-05-31` }
+    ],
+    gradingScale: "12",
+    lockTimeout: 0,
+    teacherProfile: {
+      fullName: "", school: "", position: "Вчитель",
+      category: "", title: "", experience: ""
+    }
+  };
+
+  const loadedSettings = (await window.tj.readJSON(window.paths.settingsPath)) || {};
+  const migratedSettings = { ...DEFAULT_SETTINGS, ...loadedSettings };
+  if (!migratedSettings.semesters) migratedSettings.semesters = DEFAULT_SETTINGS.semesters;
+  if (!migratedSettings.teacherProfile) migratedSettings.teacherProfile = DEFAULT_SETTINGS.teacherProfile;
+  else migratedSettings.teacherProfile = { ...DEFAULT_SETTINGS.teacherProfile, ...migratedSettings.teacherProfile };
+  const newNavIds = ['nav-schedule', 'nav-classjournal', 'nav-curriculum'];
+  newNavIds.forEach(id => { if (!migratedSettings.navOrder.includes(id)) migratedSettings.navOrder.push(id); });
+
   window.state = {
     lessons: (await window.tj.readJSON(window.paths.lessonsPath)) || [],
     students: (await window.tj.readJSON(window.paths.studentsPath)) || {},
     subjects: (await window.tj.readJSON(window.paths.subjectsPath)) || [],
-    // === ВАШ ОБ'ЄКТ SETTINGS (з navOrder) ===
-    settings: (await window.tj.readJSON(window.paths.settingsPath)) || { 
-      teacherPassword: null, 
-      autoSync: true,
-      navOrder: ['nav-lessons', 'nav-students', 'nav-reports', 'nav-tests', 'nav-board', 'nav-notes']
-    },
+    settings: migratedSettings,
     tests: (await window.tj.readJSON(window.paths.testsPath)) || [],
     notes: (await window.tj.readJSON(window.paths.notesPath)) || {},
     classOrder: (await window.tj.readJSON(window.paths.classOrderPath)) || [],
     boards: (await window.tj.readJSON(window.paths.boardsPath)) || [],
     attempts: (await window.tj.readJSON(window.paths.attemptsPath)) || [],
-    reports: (await window.tj.readJSON(window.paths.reportsPath)) || [] 
+    reports: (await window.tj.readJSON(window.paths.reportsPath)) || [],
+    schedule: (await window.tj.readJSON(window.paths.schedulePath)) || [],
+    curriculum: (await window.tj.readJSON(window.paths.curriculumPath)) || []
   };
 
   window.$("#win-min").onclick = ()=> window.tj.winMin();
@@ -175,6 +203,9 @@ function bindNav(){
   window.$("#nav-tests").onclick = () => openTab("tests", "Тести", renderTests);
   window.$("#nav-board").onclick = () => openTab("board", "Дошки", renderBoardPage);
   window.$("#nav-notes").onclick = () => openTab("notes", "Замітки", renderNotesPage);
+  window.$("#nav-schedule").onclick = () => openTab("schedule", "Розклад", renderSchedulePage);
+  window.$("#nav-classjournal").onclick = () => openTab("classjournal", "Класний журнал", renderClassJournalPage);
+  window.$("#nav-curriculum").onclick = () => openTab("curriculum", "КТП", renderCurriculumPage);
   window.$("#nav-export-menu-btn").onclick = () => openTab("export", "Експорт", renderExportPage);
   window.$("#btn-settings").onclick = () => openTab("settings", "Налаштування", renderSettings);
   window.$("#nav-toggle-btn").onclick = () => window.$("#nav-sidebar").classList.toggle("collapsed");
@@ -199,6 +230,8 @@ window.saveClassOrder = debounce(()=> window.tj.writeJSON(window.paths.classOrde
 window.saveReports = debounce(()=> window.tj.writeJSON(window.paths.reportsPath, window.state.reports));
 window.saveAttempts = debounce(()=> window.tj.writeJSON(window.paths.attemptsPath, window.state.attempts));
 window.saveBoards = debounce(()=> window.tj.writeJSON(window.paths.boardsPath, window.state.boards));
+window.saveSchedule = debounce(()=> window.tj.writeJSON(window.paths.schedulePath, window.state.schedule));
+window.saveCurriculum = debounce(()=> window.tj.writeJSON(window.paths.curriculumPath, window.state.curriculum));
 window.saveSettingsSync = ()=> window.tj.writeJSON(window.paths.settingsPath, window.state.settings);
 window.saveStudentsSync = ()=> window.tj.writeJSON(window.paths.studentsPath, window.state.students);
 window.saveSubjectsSync = ()=> window.tj.writeJSON(window.paths.subjectsPath, window.state.subjects);

@@ -436,7 +436,7 @@ input[type="checkbox"]:checked::after {
 }
 .lesson-header .title-input { flex: 1; min-width: 200px; }
 .lesson-table-container {
-  overflow-y: auto;
+  overflow: auto;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
 }
@@ -468,6 +468,15 @@ input[type="checkbox"]:checked::after {
 .table tbody tr:not(.selected):hover td { background-color: rgba(255, 255, 255, 0.03); }
 
 .lesson-table td { background: var(--bg-light); }
+
+/* Compact inputs inside lesson table */
+.lesson-table .input {
+  padding: 5px 6px;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.lesson-table select.input { padding-right: 20px; }
 
 /* Grade colors */
 .grade-input.g10, .grade.g10 { background-color: var(--grade-10); color: #000; }
@@ -986,3 +995,23 @@ input[type="checkbox"]:checked::after {
 .form-group.horizontal input[type="checkbox"] {
   width: auto;
 }
+
+/* === Presence status colors === */
+.pres-absent { background-color: rgba(231, 76, 60, 0.15) !important; color: var(--danger) !important; font-weight: 600; }
+.pres-sick { background-color: rgba(243, 156, 18, 0.15) !important; color: var(--grade-4) !important; font-weight: 600; }
+.pres-excused { background-color: rgba(149, 165, 166, 0.15) !important; color: var(--muted) !important; font-weight: 600; }
+.pres-late { background-color: rgba(243, 156, 18, 0.10) !important; color: var(--grade-4) !important; }
+
+/* === Class journal table === */
+.cj-table th, .cj-table td { padding: 4px 6px; font-size: 13px; }
+.cj-table th { background: var(--panel-dark); }
+.cj-table tbody tr:hover { background: var(--accent-glow); }
+
+/* === Schedule grid === */
+.sched-item { transition: background var(--transition-fast); border-radius: var(--radius-sm); padding: 4px; position: relative; }
+.sched-item:hover { background: var(--accent-glow); }
+.sched-cell { vertical-align: top; min-height: 60px; }
+
+/* === KTP editor === */
+#ktp-editor .table input.input { padding: 4px 8px; font-size: 13px; }
+#ktp-editor .table td { vertical-align: middle; }

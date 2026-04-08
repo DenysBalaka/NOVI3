@@ -12,12 +12,52 @@ export function sanitizeHTML(html) {
     .replace(JAVASCRIPT_URLS, 'href="');
 }
 
-export async function hashPassword(password) {
+const PBKDF2_ITERATIONS = 100000;
+
+function bufToHex(buf) {
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function hashPassword(password, existingSalt) {
+  const encoder = new TextEncoder();
+  const salt = existingSalt
+    ? Uint8Array.from(existingSalt.match(/.{2}/g).map(h => parseInt(h, 16)))
+    : crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]
+  );
+  const derived = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    keyMaterial, 256
+  );
+  const saltHex = bufToHex(salt);
+  const hashHex = bufToHex(derived);
+  return `pbkdf2:${PBKDF2_ITERATIONS}:${saltHex}:${hashHex}`;
+}
+
+export async function verifyPassword(password, stored) {
+  if (!stored || !password) return false;
+  if (stored.startsWith("pbkdf2:")) {
+    const parts = stored.split(":");
+    if (parts.length !== 4) return false;
+    const iterations = parseInt(parts[1], 10);
+    const saltHex = parts[2];
+    const expectedHash = parts[3];
+    const encoder = new TextEncoder();
+    const salt = Uint8Array.from(saltHex.match(/.{2}/g).map(h => parseInt(h, 16)));
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]
+    );
+    const derived = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+      keyMaterial, 256
+    );
+    return bufToHex(derived) === expectedHash;
+  }
   const encoder = new TextEncoder();
   const data = encoder.encode(password);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return bufToHex(hashBuffer) === stored;
 }
 
 export function debounce(func, timeout = 400){
@@ -289,8 +329,7 @@ export function showPasswordPrompt(title, storedHash) {
     };
     
     const checkPassword = async (value) => {
-      const inputHash = await hashPassword(value);
-      return inputHash === storedHash;
+      return verifyPassword(value, storedHash);
     };
 
     passInput.oninput = async () => {

@@ -283,11 +283,16 @@ function generateJournalExportDataXLSX(filters = {}) {
       for (const [studentName, sData] of Object.entries(lesson.students)) {
         const key = `${studentName}_${date}`;
         // Зберігаємо повний об'єкт даних
+        const pres = sData.presence;
+        const isAbsent = pres === false || pres === "absent" || pres === "sick" || pres === "excused";
+        const presLabel = isAbsent ? (pres === "sick" ? "хв" : pres === "excused" ? "зв" : "Н") : (pres === "late" ? "зп" : "");
+        const hwVal = sData.hwStatus !== undefined ? sData.hwStatus : (sData.hw ? "done" : "");
+        const hwLabel = hwVal === "done" ? "✓" : hwVal === "partial" ? "◐" : hwVal === "not_done" ? "✗" : hwVal === "late" ? "пізно" : "";
         gradeMap.set(key, {
           grade: sData.grade || "",
-          hw: sData.hw ? "✓" : "",
+          hw: hwLabel,
           work: sData.work ? "✓" : "",
-          presence: sData.presence ? "" : "Н", // 'Н' якщо не був
+          presence: presLabel,
           note: sData.note || ""
         });
       }
@@ -338,15 +343,21 @@ function getExportRowsJournal(filters = {}) {
   lessons.forEach(l=> {
     if (!l.students) return;
     Object.entries(l.students).forEach(([studentName, s]) => {
+      const pres2 = s.presence;
+      const presText = (pres2 === true || pres2 === "present") ? "так"
+        : pres2 === "sick" ? "хв" : pres2 === "excused" ? "зв" : pres2 === "late" ? "зп" : "ні";
+      const hwVal2 = s.hwStatus !== undefined ? s.hwStatus : (s.hw ? "done" : "");
+      const hwText = hwVal2 === "done" ? "так" : hwVal2 === "partial" ? "частково" : hwVal2 === "not_done" ? "ні" : hwVal2 === "late" ? "пізно" : "ні";
       rows.push({
         "Дата": (l.date||"").split('T')[0], 
         "Клас": l.class, 
         "Предмет": l.subject, 
         "Учень": studentName, 
-        "Присутність": s.presence?"так":"ні", 
+        "Присутність": presText, 
         "Роб. на уроці": s.work?"так":"ні", 
-        "Д/З": s.hw?"так":"ні", 
+        "Д/З": hwText, 
         "Оцінка": s.grade, 
+        "Тип оцінки": s.gradeType || "current",
         "Примітка": s.note||""
       });
     });

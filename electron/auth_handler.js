@@ -1,45 +1,59 @@
-// === ФАЙЛ: electron/auth_handler.js (Фінальна, 100% правильна версія) ===
+// === ФАЙЛ: electron/auth_handler.js ===
 const { net, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const https = require("https"); // Виправлено 'httpssa'
+const https = require("https");
+const crypto = require("crypto");
 const { URLSearchParams } = require("url");
 
-// !!! =============================================================== !!!
-const GOOGLE_CLIENT_ID = "593634695043-n8jumb3j3dkq43r3u3e4hnd1or17h2vt.apps.googleusercontent.com";
-const GOOGLE_CLIENT_SECRET = "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";
-// !!! =============================================================== !!!
+let GOOGLE_CLIENT_ID = "";
+let GOOGLE_CLIENT_SECRET = "";
+
+try {
+  const configPath = path.join(__dirname, "auth_config.json");
+  if (fs.existsSync(configPath)) {
+    const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    GOOGLE_CLIENT_ID = cfg.GOOGLE_CLIENT_ID || "";
+    GOOGLE_CLIENT_SECRET = cfg.GOOGLE_CLIENT_SECRET || "";
+  }
+} catch (e) {
+  console.error("Failed to load auth_config.json:", e.message);
+}
+
+if (process.env.GOOGLE_CLIENT_ID) GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+if (process.env.GOOGLE_CLIENT_SECRET) GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
 const GOOGLE_AUTH_PORT = 3000;
 const GOOGLE_REDIRECT_URI = `http://localhost:${GOOGLE_AUTH_PORT}/auth/google/callback`;
 const TOKEN_FILE_NAME = "google_token.json";
 const BACKUP_FILE_NAME = "TeacherJournal_Backup.zip";
 
+const AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+
 let appDataPath;
 let tokenPath;
 let authServerInstance = null;
+let authTimeoutHandle = null;
+let pendingAuthState = null;
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const USER_INFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 
-// === ЦЕ ПЕРШИЙ ВАЖЛИВИЙ РЯДОК ===
 const SCOPES = [
   "openid",
   "profile",
   "email",
-  "https://www.googleapis.com/auth/drive.appdata" // <-- Використовуємо приховану папку
+  "https://www.googleapis.com/auth/drive.appdata"
 ];
 
 const API_BASE_URL = "https://www.googleapis.com";
 
-// Ініціалізація
 function init(rootPath) {
   appDataPath = rootPath;
   tokenPath = path.join(appDataPath, TOKEN_FILE_NAME);
 }
 
-// Функція-обгортка для всіх API-запитів до Google
 async function googleApiRequest(url, method = "GET", headers = {}, body = null, isUpload = false) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -49,10 +63,8 @@ async function googleApiRequest(url, method = "GET", headers = {}, body = null, 
         ...(!isUpload && { "Content-Type": "application/json" })
       }
     };
-    
-    // Спеціальний заголовок для multipart (створення) або media (оновлення)
+
     if (isUpload) {
-        // Якщо тіло - це Buffer (тобто ми завантажуємо медіа або multipart)
         if (Buffer.isBuffer(body)) {
             if (headers["Content-Type"]) {
                  options.headers["Content-Type"] = headers["Content-Type"];
@@ -61,7 +73,6 @@ async function googleApiRequest(url, method = "GET", headers = {}, body = null, 
             }
             options.headers["Content-Length"] = body.length;
         } else {
-             // Для звичайних PATCH/POST JSON-тіл
              options.headers["Content-Type"] = "application/json";
              body = JSON.stringify(body);
         }
@@ -75,10 +86,9 @@ async function googleApiRequest(url, method = "GET", headers = {}, body = null, 
           try {
             resolve(rawData ? JSON.parse(rawData) : {});
           } catch (e) {
-            resolve({}); // Для 204 (No Content)
+            resolve({});
           }
         } else {
-          // Форматуємо помилку для показу у showCustomAlert
           let errorMsg = `API Error: ${res.statusCode} ${res.statusMessage}.`;
           try {
             const errJson = JSON.parse(rawData);
@@ -102,9 +112,7 @@ async function googleApiRequest(url, method = "GET", headers = {}, body = null, 
   });
 }
 
-// Робота з токенами
 async function saveTokens(tokens) {
-  // Додаємо час "протухання"
   tokens.expires_at = Date.now() + tokens.expires_in * 1000;
   fs.writeFileSync(tokenPath, JSON.stringify(tokens));
 }
@@ -120,9 +128,7 @@ async function getValidAccessToken() {
   let tokens = loadTokens();
   if (!tokens) throw new Error("Not authenticated");
 
-  // Перевіряємо, чи токен не прострочений (з запасом в 1 хв)
   if (Date.now() >= tokens.expires_at - 60000) {
-    // Токен прострочений, оновлюємо
     try {
       const params = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
@@ -130,17 +136,15 @@ async function getValidAccessToken() {
         refresh_token: tokens.refresh_token,
         grant_type: "refresh_token"
       });
-      // Використовуємо net.fetch, як це було в коді авторизації
       const res = await net.fetch(TOKEN_URL, { method: "POST", body: params.toString(), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
       if (!res.ok) throw new Error(`Token refresh failed: ${res.statusText}`);
       const newTokens = await res.json();
-      
-      // Зберігаємо новий токен, АЛЕ ЗБЕРІГАЄМО СТАРИЙ REFRESH_TOKEN
-      tokens = { ...tokens, ...newTokens, refresh_token: tokens.refresh_token }; 
-      
+
+      tokens = { ...tokens, ...newTokens, refresh_token: tokens.refresh_token };
+
       await saveTokens(tokens);
     } catch (e) {
-      logout(); // Якщо не вдалося оновити, виходимо
+      logout();
       throw new Error(`Failed to refresh token: ${e.message}`);
     }
   }
@@ -151,14 +155,26 @@ function logout() {
   if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
 }
 
-// Логіка автентифікації
+function cleanupAuthServer(rejectFn, reason) {
+  if (authTimeoutHandle) { clearTimeout(authTimeoutHandle); authTimeoutHandle = null; }
+  pendingAuthState = null;
+  if (authServerInstance) {
+    try { authServerInstance.close(); } catch (e) {}
+    authServerInstance = null;
+  }
+  if (rejectFn && reason) rejectFn(new Error(reason));
+}
+
 async function startAuth() {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    throw new Error("Google OAuth не налаштовано. Створіть файл electron/auth_config.json з вашими ключами.");
+  }
+
   return new Promise((resolve, reject) => {
-    if (authServerInstance) {
-      try { authServerInstance.close(); } catch (e) {}
-      authServerInstance = null;
-    }
-    
+    cleanupAuthServer(null, null);
+
+    pendingAuthState = crypto.randomBytes(32).toString("hex");
+
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
       new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
@@ -166,16 +182,25 @@ async function startAuth() {
         response_type: "code",
         scope: SCOPES.join(" "),
         access_type: "offline",
-        prompt: "consent" // Завжди запитуємо згоду (для refresh_token)
+        prompt: "consent",
+        state: pendingAuthState
       }).toString();
 
     authServerInstance = http.createServer(async (req, res) => {
       const url = new URL(req.url, `http://localhost:${GOOGLE_AUTH_PORT}`);
       if (url.pathname === "/auth/google/callback") {
         const code = url.searchParams.get("code");
+        const returnedState = url.searchParams.get("state");
+
+        if (returnedState !== pendingAuthState) {
+          res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end("<html><body><h1>Помилка: невірний state-параметр</h1></body></html>");
+          cleanupAuthServer(reject, "OAuth state mismatch — можлива CSRF-атака.");
+          return;
+        }
+
         if (code) {
           try {
-            // Обмін коду на токен
             const params = new URLSearchParams({
               code: code,
               client_id: GOOGLE_CLIENT_ID,
@@ -186,55 +211,49 @@ async function startAuth() {
             const tokenRes = await net.fetch(TOKEN_URL, { method: "POST", body: params.toString(), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
             if (!tokenRes.ok) throw new Error(`Token exchange failed: ${tokenRes.statusText}`);
             const tokens = await tokenRes.json();
-            await saveTokens(tokens); // Зберігаємо повний набір токенів
+            await saveTokens(tokens);
 
-            // Отримання профілю
             const profile = await getUserInfo(USER_INFO_URL, tokens.access_token);
-            
-            // === ВИПРАВЛЕННЯ КОДУВАННЯ (З ПОПЕРЕДНЬОГО КРОКУ) ===
+
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
             res.end("<html><body><h1>Авторизація успішна!</h1><p>Ви можете закрити це вікно.</p><script>window.close();</script></body></html>");
-            
-            if (authServerInstance) { authServerInstance.close(); authServerInstance = null; }
+
+            cleanupAuthServer(null, null);
             resolve(profile);
           } catch (e) {
-            reject(e);
-            
-             // === ... і тут також ===
             res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
             res.end("<html><body><h1>Помилка авторизації</h1></body></html>");
-            
-            if (authServerInstance) { authServerInstance.close(); authServerInstance = null; }
+            cleanupAuthServer(reject, e.message);
           }
         } else {
-          reject(new Error("No code provided"));
           res.end("<html><body><h1>Помилка: Код авторизації не знайдено</h1></body></html>");
-          if (authServerInstance) { authServerInstance.close(); authServerInstance = null; }
+          cleanupAuthServer(reject, "No code provided");
         }
       }
     });
 
     authServerInstance.on('error', (e) => {
-      if (authServerInstance) { authServerInstance.close(); authServerInstance = null; }
-      reject(new Error("Порт 3000 зайнятий. Спробуйте ще раз через кілька секунд."));
+      cleanupAuthServer(reject, "Порт 3000 зайнятий. Спробуйте ще раз через кілька секунд.");
     });
 
-    authServerInstance.listen(GOOGLE_AUTH_PORT, () => shell.openExternal(authUrl));
+    authServerInstance.listen(GOOGLE_AUTH_PORT, '127.0.0.1', () => {
+      shell.openExternal(authUrl);
+
+      authTimeoutHandle = setTimeout(() => {
+        cleanupAuthServer(reject, "Час очікування авторизації вичерпано (5 хвилин). Спробуйте ще раз.");
+      }, AUTH_TIMEOUT_MS);
+    });
   });
 }
 
-// === ЛОГІКА GOOGLE DRIVE (ВАЖЛИВІ ЗМІНИ) ===
+// === ЛОГІКА GOOGLE DRIVE ===
 
 async function getUserInfo(url, token) { return googleApiRequest(url, "GET", { Authorization: `Bearer ${token}` }); }
 
-/**
- * Знаходить файл бекапу (лише у прихованій папці AppData)
- */
 async function findBackupFile(token) {
-  // === ЦЕ ДРУГИЙ ВАЖЛИВИЙ РЯДОК ===
   const url = `${API_BASE_URL}/drive/v3/files?` +
     new URLSearchParams({
-      spaces: 'appDataFolder', // <-- ШУКАЄМО ЛИШЕ ТУТ
+      spaces: 'appDataFolder',
       q: `name='${BACKUP_FILE_NAME}' and trashed=false`,
       fields: "files(id, name, modifiedTime)"
     }).toString();
@@ -244,15 +263,11 @@ async function findBackupFile(token) {
   return data.files && data.files.length > 0 ? data.files[0] : null;
 }
 
-/**
- * Завантажує/Оновлює файл бекапу (лише у приховану папку AppData)
- */
 async function uploadFileToDrive(token, filePath) {
-  const file = await findBackupFile(token); // Перевіряємо, чи файл вже існує
+  const file = await findBackupFile(token);
   const fileMetadata = {
     name: BACKUP_FILE_NAME,
-    // === ЦЕ ТРЕТІЙ ВАЖЛИВИЙ РЯДОК ===
-    parents: ['appDataFolder'] // <-- ВКАЗУЄМО, КУДИ ЗБЕРІГАТИ
+    parents: ['appDataFolder']
   };
 
   const fileContent = fs.readFileSync(filePath);
@@ -263,23 +278,20 @@ async function uploadFileToDrive(token, filePath) {
   let isMulti = false;
 
   if (file) {
-    // Файл існує, оновлюємо його (PATCH)
     url = `${API_BASE_URL}/upload/drive/v3/files/${file.id}?uploadType=media`;
     method = "PATCH";
     headers["Content-Type"] = "application/octet-stream";
     body = fileContent;
-    isMulti = true; // Використовуємо isUpload=true для googleApiRequest
+    isMulti = true;
   } else {
-    // Файл не існує, створюємо новий (POST)
     url = `${API_BASE_URL}/upload/drive/v3/files?uploadType=multipart`;
     method = "POST";
-    
+
     const boundary = "----NodeJsGoogleDriveApiBoundary" + Date.now();
     headers["Content-Type"] = `multipart/related; boundary=${boundary}`;
-    
+
     const metadataPart = JSON.stringify(fileMetadata);
-    
-    // Формуємо multipart тіло
+
     body = Buffer.concat([
       Buffer.from(`--${boundary}\r\n`),
       Buffer.from("Content-Type: application/json; charset=UTF-8\r\n\r\n"),
@@ -295,14 +307,10 @@ async function uploadFileToDrive(token, filePath) {
   return googleApiRequest(url, method, headers, body, isMulti);
 }
 
-/**
- * Скачує файл бекапу
- */
 async function downloadFileFromDrive(token, fileId, destPath) {
   const url = `${API_BASE_URL}/drive/v3/files/${fileId}?alt=media`;
   const headers = { Authorization: `Bearer ${token}` };
-  
-  // Використовуємо 'https' напряму для скачування файлу, бо це надійніше
+
   return new Promise((resolve, reject) => {
     const fileStream = fs.createWriteStream(destPath);
     https.get(url, { headers }, (res) => {
@@ -316,16 +324,16 @@ async function downloadFileFromDrive(token, fileId, destPath) {
       }
       res.pipe(fileStream);
       fileStream.on("finish", () => {
-        fileStream.close(resolve); // Передаємо resolve як колбек
+        fileStream.close(resolve);
       });
     }).on("error", (e) => {
-      try { fs.unlinkSync(destPath); } catch(err) {} // Видалити частковий файл
+      try { fs.unlinkSync(destPath); } catch(err) {}
       reject(e);
     });
   });
 }
 
-// === Експортовані функції (без змін) ===
+// === Експортовані функції ===
 
 async function getUserProfile() {
   try {
