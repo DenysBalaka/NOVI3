@@ -9,54 +9,59 @@
  <style>
   .board-window-body {
       overflow: hidden; 
-      background: var(--bg-light); 
+      background: #0b0b0f;
   }
   .board-container {
     flex: 1;
     height: calc(100vh - 40px);
     position: relative;
     overflow: hidden;
-    background-color: #ffffff; /* ВАЖЛИВО: Білий фон, щоб гумка стирала до білого */
+    background:
+      radial-gradient(1000px 600px at 20% 0%, rgba(255,255,255,0.06), transparent 55%),
+      radial-gradient(900px 700px at 80% 10%, rgba(99,102,241,0.08), transparent 55%),
+      #0b0b0f;
   }
   #board-canvas {
     position: absolute; top: 0; left: 0;
     touch-action: none;
     width: 100%; height: 100%;
-    /* Кастомний маленький хрестик */
     cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><line x1="8" y1="0" x2="8" y2="16" stroke="black" stroke-width="1"/><line x1="0" y1="8" x2="16" y2="8" stroke="black" stroke-width="1"/><rect x="7" y="7" width="2" height="2" fill="white"/></svg>') 8 8, crosshair;
   }
   
-  /* === ТУЛБАР У СТИЛІ IPAD (GLASSMORPHISM) === */
+  /* ========= FLOATING TOOLBAR (compact 2-row) ========= */
   .floating-toolbar {
     position: absolute; 
-    top: calc(100% - 80px); 
+    top: 10px;
     left: 50%; 
     transform: translateX(-50%);
-    
-    /* Скляний ефект (Glassmorphism) - зробили трішки білішим */
-    background: rgba(255, 255, 255, 0.85); 
-    backdrop-filter: blur(24px) saturate(200%); 
-    -webkit-backdrop-filter: blur(24px) saturate(200%); 
-    
-    /* ВИПРАВЛЕННЯ: Темніша рамка (rgba чорного), яку добре видно на світлому фоні */
-    border: 1px solid rgba(0, 0, 0, 0.15); 
-    border-radius: 24px; 
-    padding: 8px 16px; 
-    /* Виразна тінь для контрасту на білому тлі */
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    
+    background: rgba(30, 30, 34, 0.82);
+    backdrop-filter: blur(28px) saturate(180%); 
+    -webkit-backdrop-filter: blur(28px) saturate(180%); 
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 16px; 
+    padding: 6px 10px;
+    box-shadow:
+      0 12px 48px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
     z-index: 50; 
-    display: flex; 
-    align-items: center; 
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
     transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
   }
 
-  /* Стилі для прихованого (docked) тулбару */
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    width: 100%;
+    justify-content: center;
+  }
+
   .floating-toolbar.docked-left {
     left: 10px !important;
-    transform: translateX(calc(-100% + 32px)) !important; 
-    /* Зробили менш прозорим (було 0.5, стало 0.8), щоб на білому фоні було добре видно */
+    transform: translateX(calc(-100% + 28px)) !important; 
     opacity: 0.8;
   }
   .floating-toolbar.docked-left:hover {
@@ -65,7 +70,7 @@
   }
   .floating-toolbar.docked-right {
     left: calc(100% - 10px) !important;
-    transform: translateX(-32px) !important;
+    transform: translateX(-28px) !important;
     opacity: 0.8;
   }
   .floating-toolbar.docked-right:hover {
@@ -73,91 +78,127 @@
     opacity: 1;
   }
 
-  .toolbar-group { display: flex; align-items: center; gap: 8px; }
+  .toolbar-group { display: flex; align-items: center; gap: 3px; }
   
   .toolbar-drag-handle {
-    cursor: grab; width: 14px; height: 32px;
+    cursor: grab; width: 10px; height: 24px;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; opacity: 0.4; color: #555; font-size: 20px;
+    flex-shrink: 0; opacity: 0.35; color: rgba(255,255,255,0.6); font-size: 14px;
     transition: opacity 0.2s;
   }
-  .toolbar-drag-handle:hover { opacity: 0.8; }
+  .toolbar-drag-handle:hover { opacity: 0.75; }
   .toolbar-drag-handle::after { content: '⋮'; }
 
-  /* М'які розділювачі */
   .toolbar-divider { 
-    width: 2px; 
-    height: 28px; 
-    background: rgba(0, 0, 0, 0.1); 
+    width: 1px; 
+    height: 22px; 
+    background: rgba(255, 255, 255, 0.10);
     flex-shrink: 0; 
-    border-radius: 2px;
+    margin: 0 2px;
   }
   
-  /* Кнопки інструментів */
+  /* ========= TOOL BUTTONS (compact 32px) ========= */
   .tool-btn {
-    width: 44px; 
-    height: 44px; 
+    width: 32px; 
+    height: 32px; 
     padding: 0; 
-    font-size: 20px;
+    font-size: 15px;
+    line-height: 1;
     background: transparent; 
-    color: #444; 
+    color: rgba(255, 255, 255, 0.80);
     border: 1px solid transparent; 
-    border-radius: 14px; 
+    border-radius: 9px; 
     cursor: pointer;
     display: flex; align-items: center; justify-content: center; 
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    flex-shrink: 0;
   }
   .tool-btn:hover { 
-    background: rgba(0, 0, 0, 0.05); 
-    transform: translateY(-2px); 
+    background: rgba(255, 255, 255, 0.10); 
+    color: #fff;
   }
   .tool-btn.active { 
-    background: #007AFF; 
+    background: rgba(255, 255, 255, 0.18);
     color: white; 
-    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.30);
+    border-color: rgba(255, 255, 255, 0.14);
   }
-  .tool-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
-  
-  /* SVG іконки в кнопках */
-  .tool-btn svg { stroke: currentColor; }
-  
-  /* Елементи управління */
-  .toolbar-group label { color: #555; font-size: 13px; font-weight: 600; }
-  
-  /* Красивий вибір кольору */
+  .tool-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+  .tool-btn svg { width: 16px; height: 16px; stroke: currentColor; }
+  .tool-btn b { font-size: 13px; font-weight: 700; }
+
+  /* ========= SETTINGS ROW ========= */
   .toolbar-group input[type='color'] { 
-    width: 36px; height: 36px; padding: 0; 
-    border: 2px solid white; 
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    width: 26px; height: 26px; padding: 0; 
+    border: 2px solid rgba(255, 255, 255, 0.18); 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     border-radius: 50%; overflow: hidden; cursor: pointer; 
+    flex-shrink: 0;
   }
-  
-  /* Красивий повзунок товщини */
   .toolbar-group input[type='range'] { 
-    width: 90px; 
-    accent-color: #007AFF; 
+    width: 70px; height: 4px;
+    accent-color: #ffffff;
   }
-  
-  /* Випадаючий список */
   .toolbar-group select.input { 
-    padding: 6px 12px; 
-    width: 110px; 
-    font-size: 14px; 
-    height: 38px; 
-    background: rgba(255,255,255,0.8); 
-    color: #333; 
-    border: 1px solid rgba(0,0,0,0.1); 
-    border-radius: 10px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    padding: 3px 8px; 
+    width: 88px; 
+    font-size: 11px; 
+    height: 26px; 
+    background: rgba(255,255,255,0.08); 
+    color: rgba(255,255,255,0.88); 
+    border: 1px solid rgba(255,255,255,0.10); 
+    border-radius: 7px;
   }
-  .toolbar-group span { color: #444; font-weight: 500; }
-  
+  .toolbar-group span { 
+    color: rgba(255,255,255,0.7); font-weight: 600; font-size: 11px;
+    min-width: 18px; text-align: center;
+  }
+  .toolbar-group label { color: rgba(255, 255, 255, 0.6); font-size: 11px; font-weight: 600; }
+
+  /* ========= TEXT INPUT OVERLAY ========= */
   .board-text-input {
     position: absolute; z-index: 100; background: transparent; color: #000;
-    border: 2px dashed #007AFF; padding: 4px; font-family: Segoe UI, sans-serif;
+    border: 2px dashed rgba(99,102,241,0.9); padding: 6px 8px; font-family: 'Inter','Segoe UI',system-ui,sans-serif;
     outline: none; resize: none; display: none; min-width: 50px; min-height: 30px;
     overflow: hidden; line-height: 1.2; white-space: pre-wrap;
-    border-radius: 4px;
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+  }
+
+  /* ========= STATUS PILL ========= */
+  .board-status-pill {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 60;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(30, 30, 34, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+    color: rgba(255,255,255,0.85);
+    font-size: 11px;
+    user-select: none;
+  }
+  .status-kbd {
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(0,0,0,0.18);
+  }
+  .status-zoom {
+    min-width: 38px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 11px;
   }
 </style>
 </head>
@@ -176,62 +217,79 @@
     <canvas id="board-canvas" style="position: absolute; top: 0; left: 0; z-index: 1;"></canvas>
 
     <div class="floating-toolbar" id="floating-toolbar">
-       <div class="toolbar-drag-handle" id="toolbar-drag-handle" title="Перетягніть до краю, щоб закріпити"></div>
-       <div class="toolbar-group">
-        <button class="btn tool-btn" id="tool-undo" disabled title="Скасувати">↩️</button>
-        <button class="btn tool-btn" id="tool-redo" disabled title="Повторити">↪️</button>
+      <!-- ROW 1: tools -->
+      <div class="toolbar-row">
+        <div class="toolbar-drag-handle" id="toolbar-drag-handle" title="Перетягніть до краю, щоб закріпити"></div>
+        <div class="toolbar-group">
+          <button class="tool-btn" id="tool-undo" disabled title="Скасувати (Ctrl Z)">↩️</button>
+          <button class="tool-btn" id="tool-redo" disabled title="Повторити (Ctrl Y)">↪️</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="tool-btn" id="tool-hand" title="Рука (H)">✋</button>
+          <button class="tool-btn" id="tool-select" title="Виділення (V)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="tool-btn active" id="tool-pen" title="Олівець (P)">✏️</button>
+          <button class="tool-btn" id="tool-eraser" title="Гумка (E)">🧼</button>
+          <button class="tool-btn" id="tool-shape-cycle" title="Фігури (S)">📐</button>
+          <button class="tool-btn" id="tool-text" title="Текст (T)"><b>Aa</b></button>
+          <button class="tool-btn" id="tool-image" title="Фото (I)">🖼️</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="tool-btn" id="tool-zoom-out" title="Зменшити (Ctrl -)">−</button>
+          <button class="tool-btn" id="tool-zoom-reset" title="Скинути (Ctrl 0)" style="font-size:12px; font-weight:700;">1:1</button>
+          <button class="tool-btn" id="tool-zoom-in" title="Збільшити (Ctrl +)">+</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <button class="tool-btn" id="tool-export" title="Експорт PNG (Ctrl E)">⤓</button>
+          <button class="tool-btn" id="tool-clear" title="Очистити (Ctrl L)">🗑️</button>
+        </div>
       </div>
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
-        <button class="btn tool-btn" id="tool-hand" title="Рука (H)">✋</button>
-        <button class="btn tool-btn" id="tool-select" title="Виділення (V)"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
-      </div>
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
-        <button class="btn tool-btn active" id="tool-pen" title="Олівець (P)">✏️</button>
-        <button class="btn tool-btn" id="tool-eraser" title="Гумка (E)">🧼</button>
-        <button class="btn tool-btn" id="tool-shape-cycle" title="Фігури (S)">📐</button>
-        <button class="btn tool-btn" id="tool-text" title="Текст (T)"><b>Aa</b></button>
-        <button class="btn tool-btn" id="tool-image" title="Фото (I)">🖼️</button>
-      </div>
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group" id="pen-settings">
-        <input type="color" id="tool-color" value="#FF0000">
-        <input type="range" id="tool-stroke" min="1" max="50" value="5" title="Товщина">
-        <span id="stroke-value" style="font-size: 13px; width: 22px; text-align: center;">5</span>
-      </div>
-      
-      <div class="toolbar-group" id="eraser-settings" style="display: none;">
-        <input type="range" id="tool-eraser-stroke" min="5" max="150" value="30" title="Розмір гумки">
-        <span id="eraser-stroke-value" style="font-size: 13px; width: 25px; text-align: center;">30</span>
-      </div>
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
-        <select class="input" id="template-select" title="Фон">
-          <option value="blank">Чистий</option>
-          <option value="grid">Клітинка</option>
-          <option value="lines">Лінійка</option>
-          <option value="dark">Темний</option>
-        </select>
+
+      <!-- ROW 2: settings -->
+      <div class="toolbar-row" id="settings-row">
+        <div class="toolbar-group" id="pen-settings">
+          <input type="color" id="tool-color" value="#FF0000">
+          <input type="range" id="tool-stroke" min="1" max="50" value="5" title="Товщина">
+          <span id="stroke-value">5</span>
+        </div>
+        <div class="toolbar-group" id="eraser-settings" style="display: none;">
+          <input type="range" id="tool-eraser-stroke" min="5" max="150" value="30" title="Розмір гумки">
+          <span id="eraser-stroke-value">30</span>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <select class="input" id="template-select" title="Фон">
+            <option value="blank">Чистий</option>
+            <option value="grid">Клітинка</option>
+            <option value="lines">Лінійка</option>
+            <option value="dark">Темний</option>
+          </select>
+        </div>
       </div>
     </div> 
     
     <textarea id="text-input-overlay" class="board-text-input"></textarea>
 
+    <div class="board-status-pill" id="board-status-pill">
+      <span class="status-kbd">Space+Drag</span>
+      <span class="status-zoom" id="zoom-indicator">100%</span>
+    </div>
+
     <div style="display: none;">
-       <div id="icon-line"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg></div>
-      <div id="icon-rect"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></div>
-      <div id="icon-circle"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div>
-      <div id="icon-triangle"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l10 18H2z"/></svg></div>
-      <div id="icon-cylinder"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c4.97 0 9 1.343 9 3s-4.03 3-9 3-9-1.343-9-3 4.03-3 9-3z"/><path d="M3 6v12c0 1.657 4.03 3 9 3s9-1.343 9-3V6"/><path d="M3 13c0 1.66 4 3 9 3s9-1.34 9-3"/></svg></div>
-      <div id="icon-star"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
-      <div id="icon-rhombus"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 12 12 22 22 12 12 2"/></svg></div>
-      <div id="icon-hexagon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7z"/></svg></div>
-      <div id="icon-arrow"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+       <div id="icon-line"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg></div>
+      <div id="icon-rect"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></div>
+      <div id="icon-circle"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div>
+      <div id="icon-triangle"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l10 18H2z"/></svg></div>
+      <div id="icon-cylinder"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c4.97 0 9 1.343 9 3s-4.03 3-9 3-9-1.343-9-3 4.03-3 9-3z"/><path d="M3 6v12c0 1.657 4.03 3 9 3s9-1.343 9-3V6"/><path d="M3 13c0 1.66 4 3 9 3s9-1.34 9-3"/></svg></div>
+      <div id="icon-star"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
+      <div id="icon-rhombus"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 12 12 22 22 12 12 2"/></svg></div>
+      <div id="icon-hexagon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7z"/></svg></div>
+      <div id="icon-arrow"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
     </div>
   </div> 
   <script src="board_renderer.js" type="module"></script>

@@ -251,6 +251,19 @@ ipcMain.handle("tj:show-save-dialog", async (e, options) => {
 });
 // =======================================
 
+ipcMain.handle("tj:write-base64-file", async (e, p, base64) => {
+  try {
+    if (!p || typeof p !== "string") return { error: "Invalid path" };
+    if (!base64 || typeof base64 !== "string") return { error: "Invalid data" };
+    const cleaned = base64.replace(/^data:.*?;base64,/, "");
+    const buf = Buffer.from(cleaned, "base64");
+    await fs.promises.writeFile(p, buf);
+    return true;
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle("tj:write-csv", async (e, p, txt) => {
   try {
     await fs.promises.writeFile(p, "\uFEFF" + txt, "utf-8");

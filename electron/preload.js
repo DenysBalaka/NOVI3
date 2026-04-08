@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("tj", {
   
   // Експорт
   showSaveDialog: (options) => ipcRenderer.invoke("tj:show-save-dialog", options), // <-- ДОДАНО
+  writeBase64File: (p, base64) => ipcRenderer.invoke("tj:write-base64-file", p, base64),
   writeCSV: (p,txt)=>ipcRenderer.invoke("tj:write-csv", p, txt),
   writeXLSX: (p,rows)=>ipcRenderer.invoke("tj:write-xlsx", p, rows),
   exportTestDocx: (p,t,m)=>ipcRenderer.invoke("tj:export-test-docx", p, t, m),

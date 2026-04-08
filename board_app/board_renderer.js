@@ -17,6 +17,7 @@ let currentStroke = null;
 const shapeTools = ['line', 'rect', 'circle', 'triangle', 'cylinder', 'star', 'rhombus', 'hexagon', 'arrow'];
 let currentShapeIndex = 0; 
 let historyStack = [], redoStack = []; const MAX_HISTORY = 50;
+const ZOOM_MIN = 0.1, ZOOM_MAX = 10;
 
 function toWorld(sx, sy) { return { x: (sx - viewport.x) / viewport.scale, y: (sy - viewport.y) / viewport.scale }; }
 function toScreen(wx, wy) { return { x: wx * viewport.scale + viewport.x, y: wy * viewport.scale + viewport.y }; }
@@ -43,7 +44,7 @@ async function loadBoard() {
     if (data) {
       boardData = { ...data, strokes: data.strokes||[], images: data.images||[], texts: data.texts||[], shapes: data.shapes||[], template: data.template||'blank', viewport: data.viewport||{x:0,y:0,scale:1} };
       viewport = boardData.viewport; window.$("#template-select").value = boardData.template;
-      pushHistory(); await cacheAllImages(); redrawAll();
+      pushHistory(); await cacheAllImages(); redrawAll(); updateZoomUI();
     }
   } catch (e) { console.error(e); }
 }
@@ -75,13 +76,17 @@ function redrawAll() {
   boardData.texts.forEach((o, i) => { if (!(editorState==='editing_text' && selectedObject?.index===i && selectedObject?.type==='text')) drawObject(ctx, o, 'text'); });
   if (editorState === 'drawing' && currentStroke) drawStroke(ctx, currentStroke);
   if (selectedObject && editorState !== 'editing_text') drawSelectionBox(ctx, selectedObject);
+  updateZoomUI();
 }
 
 function drawBackground(context) {
   const t = boardData.template; context.save();
-  context.fillStyle = t === 'dark' ? '#2b2d31' : '#ffffff'; context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+  if (t === 'dark') context.fillStyle = '#0b0b0f';
+  else context.fillStyle = '#f8fafc';
+  context.fillRect(0, 0, context.canvas.width, context.canvas.height);
   if (t === 'grid' || t === 'lines') {
-    context.strokeStyle = '#c0c0c0'; context.lineWidth = 1;
+    context.strokeStyle = t === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(2,6,23,0.10)';
+    context.lineWidth = 1;
     const gs = 25 * viewport.scale, ox = viewport.x % gs, oy = viewport.y % gs;
     context.beginPath();
     if (t === 'grid') for (let x = ox; x < context.canvas.width; x += gs) { context.moveTo(x, 0); context.lineTo(x, context.canvas.height); }
@@ -220,12 +225,9 @@ function bindCanvasEvents() {
     }
     
     e.preventDefault();
-    if (activeTool === 'hand') {
-      const f = e.deltaY < 0 ? 1.1 : 1/1.1, m1 = toWorld(e.offsetX, e.offsetY);
-      viewport.scale = Math.max(0.1, Math.min(viewport.scale * f, 10));
-      const m2 = toWorld(e.offsetX, e.offsetY);
-      viewport.x += (m2.x - m1.x) * viewport.scale; viewport.y += (m2.y - m1.y) * viewport.scale;
-      redrawAll();
+    if (activeTool === 'hand' || e.ctrlKey) {
+      const f = e.deltaY < 0 ? 1.1 : 1/1.1;
+      zoomAt(e.offsetX, e.offsetY, f);
     } else if (activeTool === 'pen' || shapeTools.includes(activeTool) || activeTool === 'text') {
       penWidth = Math.max(1, Math.min(100, penWidth + (e.deltaY < 0 ? 2 : -2)));
       window.$("#tool-stroke").value = penWidth; window.$("#stroke-value").textContent = penWidth;
@@ -358,6 +360,11 @@ function bindToolbar() {
   window.$("#tool-stroke").oninput = (e) => { penWidth = parseInt(e.target.value); window.$("#stroke-value").textContent = penWidth; };
   window.$("#tool-eraser-stroke").oninput = (e) => { eraserWidth = parseInt(e.target.value); window.$("#eraser-stroke-value").textContent = eraserWidth; };
   window.$("#template-select").onchange = (e) => { boardData.template = e.target.value; saveBoard(); redrawAll(); };
+  window.$("#tool-zoom-in").onclick = () => zoomAt(canvas.width/2, canvas.height/2, 1.15);
+  window.$("#tool-zoom-out").onclick = () => zoomAt(canvas.width/2, canvas.height/2, 1/1.15);
+  window.$("#tool-zoom-reset").onclick = () => resetView();
+  window.$("#tool-export").onclick = () => exportAsPng();
+  window.$("#tool-clear").onclick = () => clearBoard();
   window.$("#tool-image").onclick = async () => {
     const f = await window.tj.chooseFiles(); if(f?.length) for(const p of f) { const d = await window.tj.readFileAsDataUrl(p); if(d) { const i=new Image(); i.onload=()=>{const c=toWorld(canvas.width/2,canvas.height/2);boardData.images.push({dataURL:d,x:c.x-i.width/4,y:c.y-i.height/4,width:i.width/2,height:i.height/2,rotation:0});imageCache[d]=i;pushHistory();saveBoard();redrawAll();}; i.src=d; } }
   };
@@ -392,18 +399,78 @@ function bindKeyEvents() {
     if (editorState==='editing_text') return;
     if (e.ctrlKey && (e.key==='z' || e.key === 'я')) undo(); 
     if (e.ctrlKey && (e.key==='y' || e.key === 'ч')) redo();
+    if (e.ctrlKey && (e.key === '0' || e.key === 'о')) { e.preventDefault(); resetView(); }
+    if (e.ctrlKey && (e.key === '=' || e.key === '+')) { e.preventDefault(); zoomAt(canvas.width/2, canvas.height/2, 1.15); }
+    if (e.ctrlKey && e.key === '-') { e.preventDefault(); zoomAt(canvas.width/2, canvas.height/2, 1/1.15); }
+    if (e.ctrlKey && (e.key.toLowerCase() === 'e' || e.key === 'у')) { e.preventDefault(); exportAsPng(); }
+    if (e.ctrlKey && (e.key.toLowerCase() === 'l' || e.key === 'д')) { e.preventDefault(); clearBoard(); }
+    if (e.ctrlKey && (e.key.toLowerCase() === 's' || e.key === 'і')) { e.preventDefault(); saveBoardNow(); }
     if ((e.key==='Delete' || e.key === 'Backspace') && selectedObject) {
        if(selectedObject.type==='image') boardData.images.splice(selectedObject.index,1);
        if(selectedObject.type==='text') boardData.texts.splice(selectedObject.index,1);
        if(selectedObject.type==='shape') boardData.shapes.splice(selectedObject.index,1);
        selectedObject=null; pushHistory(); saveBoard(); redrawAll();
     }
-    if(e.key==='h' || e.key === 'р')setActiveTool('hand'); 
-    if(e.key==='v' || e.key === 'м')setActiveTool('select');
-    if(e.key==='p' || e.key === 'з')setActiveTool('pen'); 
-    if(e.key==='e' || e.key === 'у')setActiveTool('eraser');
-    if(e.key==='t' || e.key === 'е')setActiveTool('text');
+    if(!e.ctrlKey && !e.altKey) {
+      if(e.key==='h' || e.key === 'р')setActiveTool('hand'); 
+      if(e.key==='v' || e.key === 'м')setActiveTool('select');
+      if(e.key==='p' || e.key === 'з')setActiveTool('pen'); 
+      if(e.key==='e' || e.key === 'у')setActiveTool('eraser');
+      if(e.key==='t' || e.key === 'е')setActiveTool('text');
+    }
   });
+}
+
+function updateZoomUI() {
+  const el = window.$("#zoom-indicator");
+  if (!el) return;
+  const pct = Math.round((viewport.scale || 1) * 100);
+  el.textContent = `${pct}%`;
+}
+
+function zoomAt(sx, sy, factor) {
+  const m1 = toWorld(sx, sy);
+  viewport.scale = Math.max(ZOOM_MIN, Math.min(viewport.scale * factor, ZOOM_MAX));
+  const m2 = toWorld(sx, sy);
+  viewport.x += (m2.x - m1.x) * viewport.scale;
+  viewport.y += (m2.y - m1.y) * viewport.scale;
+  redrawAll();
+  saveBoard();
+}
+
+function resetView() {
+  viewport = { x: 0, y: 0, scale: 1 };
+  redrawAll();
+  saveBoard();
+}
+
+async function exportAsPng() {
+  try {
+    const res = await window.tj.showSaveDialog({
+      title: "Експорт дошки",
+      defaultPath: "board.png",
+      filters: [{ name: "PNG", extensions: ["png"] }]
+    });
+    if (!res || res.canceled || !res.filePath) return;
+    const dataUrl = canvas.toDataURL("image/png");
+    const wr = await window.tj.writeBase64File(res.filePath, dataUrl);
+    if (wr && wr.error) throw new Error(wr.error);
+  } catch (e) {
+    console.error(e);
+    // Без модалок: це вікно-дошка, краще не блокувати роботу
+  }
+}
+
+async function clearBoard() {
+  if (editorState === 'editing_text') return;
+  boardData.strokes = [];
+  boardData.shapes = [];
+  boardData.texts = [];
+  boardData.images = [];
+  selectedObject = null;
+  pushHistory();
+  redrawAll();
+  saveBoard();
 }
 
 function bindDraggableToolbar() {
