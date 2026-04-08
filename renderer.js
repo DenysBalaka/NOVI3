@@ -1,5 +1,5 @@
 // === ФАЙЛ: renderer.js ===
-import { debounce, showCustomAlert, showCustomConfirm, showTestStartDialog, createContextMenu, closeContextMenu, showTextEditContextMenu, showPasswordPrompt } from './utils.js';
+import { debounce, showCustomAlert, showCustomConfirm, showTestStartDialog, createContextMenu, closeContextMenu, showTextEditContextMenu, showPasswordPrompt, sanitizeHTML, hashPassword } from './utils.js';
 import { openTab, setActive, closeTab } from './navigation.js';
 import { renderHome, showCalendarContextMenu } from './module_home.js';
 import { renderLesson, renderLessonsList, openOrCreateLesson, renderNewLessonDialog, showLessonListContextMenu } from './module_lessons.js';
@@ -13,7 +13,7 @@ import { renderBoardPage, createNewBoard } from './board_app/module_board.js';
 
 window.$ = (s,el=document) => el.querySelector(s);
 window.$$ = (s,el=document) => Array.from(el.querySelectorAll(s));
-window.esc = (str) => String(str || "").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, ">");
+window.esc = (str) => String(str || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 window.css = (str) => str.replace(/[^a-zA-Z0-9_-]/g, '_');
 
 (function(){
@@ -44,6 +44,7 @@ window.renderReportPage = renderReportPage; window.populateReportPageFilters = p
 window.renderNotesPage = renderNotesPage; window.renderSettings = renderSettings; window.renderExportPage = renderExportPage;
 window.renderBoardPage = renderBoardPage; window.createNewBoard = createNewBoard;
 window.showCalendarContextMenu = showCalendarContextMenu; window.showLessonListContextMenu = showLessonListContextMenu;
+window.sanitizeHTML = sanitizeHTML;
 
 // === "ЗАПОБІЖНИК" (Нова функція) ===
 async function handleAutoSyncResult(res, isLoginAttempt = false) {

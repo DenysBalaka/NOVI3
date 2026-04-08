@@ -1,5 +1,25 @@
 // === ДОПОМІЖНІ ФУНКЦІЇ (доступні глобально) ===
 
+const DANGEROUS_TAGS = /(<\s*\/?\s*)(script|iframe|object|embed|form|link|meta|base)(\s|>)/gi;
+const EVENT_HANDLERS = /\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi;
+const JAVASCRIPT_URLS = /href\s*=\s*["']?\s*javascript:/gi;
+
+export function sanitizeHTML(html) {
+  if (!html) return "";
+  return html
+    .replace(DANGEROUS_TAGS, "&lt;$2$3")
+    .replace(EVENT_HANDLERS, "")
+    .replace(JAVASCRIPT_URLS, 'href="');
+}
+
+export async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export function debounce(func, timeout = 400){
   let timer;
   return (...args) => {
@@ -233,11 +253,11 @@ export function showTextEditContextMenu(e) {
  * @param {string} correctPassword - Правильний пароль для перевірки
  * @returns {Promise<boolean>} - true, якщо пароль вірний, інакше false
  */
-export function showPasswordPrompt(title, correctPassword) {
+export function showPasswordPrompt(title, storedHash) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
-    overlay.id = "password-prompt-overlay"; // Спеціальний ID для z-index
+    overlay.id = "password-prompt-overlay";
     
     const dialog = document.createElement("div");
     dialog.className = "modal-dialog";
@@ -268,23 +288,22 @@ export function showPasswordPrompt(title, correctPassword) {
       resolve(result);
     };
     
-    // === ЛОГІКА МИТТЄВОГО РОЗБЛОКУВАННЯ ===
-    passInput.oninput = () => {
+    const checkPassword = async (value) => {
+      const inputHash = await hashPassword(value);
+      return inputHash === storedHash;
+    };
+
+    passInput.oninput = async () => {
       const currentValue = passInput.value;
-      // Перевіряємо, чи існує пароль і чи довжина введеного збігається
-      // (ми очікуємо 4 цифри згідно module_settings.js)
-      if (correctPassword && currentValue.length === correctPassword.length) {
-        if (currentValue === correctPassword) {
-          closeAndResolve(true); // Успіх - миттєво закриваємо
+      if (storedHash && currentValue.length === 4) {
+        if (await checkPassword(currentValue)) {
+          closeAndResolve(true);
         }
-        // Якщо невірно, ми нічого не робимо, даючи користувачу
-        // натиснути "OK" і побачити помилку.
       }
     };
-    // === КІНЕЦЬ НОВОЇ ЛОГІКИ ===
 
-    btnOk.onclick = () => {
-      if (passInput.value === correctPassword) {
+    btnOk.onclick = async () => {
+      if (await checkPassword(passInput.value)) {
         closeAndResolve(true);
       } else {
         errorMsg.textContent = "Невірний пароль.";

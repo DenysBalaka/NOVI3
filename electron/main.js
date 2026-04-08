@@ -31,7 +31,12 @@ function ensureDirs(){
   };
 }
 const paths = ensureDirs();
-auth.init(paths.root); 
+auth.init(paths.root);
+
+function isPathSafe(targetPath) {
+  const resolved = path.resolve(targetPath);
+  return resolved.startsWith(paths.root + path.sep) || resolved === paths.root;
+}
 
 // === Керування вікном Дошки ===
 let boardWindow = null;
@@ -164,6 +169,7 @@ ipcMain.handle("tj:get-paths", () => paths);
 
 ipcMain.handle("tj:read-json", async (e, p) => {
   try {
+    if (!isPathSafe(p)) { console.error(`Path rejected: ${p}`); return null; }
     if (!fs.existsSync(p)) return null;
     const data = await fs.promises.readFile(p, "utf-8");
     return JSON.parse(data);
@@ -172,6 +178,7 @@ ipcMain.handle("tj:read-json", async (e, p) => {
 
 ipcMain.handle("tj:write-json", async (e, p, d) => {
   try {
+    if (!isPathSafe(p)) { console.error(`Path rejected: ${p}`); return false; }
     await fs.promises.writeFile(p, JSON.stringify(d, null, 2), "utf-8");
     return true;
   } catch (err) { console.error(`Failed to write ${p}:`, err); return false; }
@@ -204,9 +211,13 @@ ipcMain.handle("tj:add-files", async (e, filePaths) => {
   return added;
 });
 
-ipcMain.handle("tj:open-path", (e, p) => shell.openPath(p));
+ipcMain.handle("tj:open-path", (e, p) => {
+  if (!isPathSafe(p)) { console.error(`Path rejected: ${p}`); return; }
+  return shell.openPath(p);
+});
 ipcMain.handle("tj:delete-path", async (e, p) => {
   try {
+    if (!isPathSafe(p)) { console.error(`Path rejected: ${p}`); return false; }
     if (fs.existsSync(p)) await fs.promises.unlink(p);
     return true;
   } catch (err) { console.error("Failed to delete file:", err); return false; }
@@ -511,7 +522,7 @@ function createZipBackup(targetPath) {
   }
 }
 
-ipcMain.handle("tj:backup-create", async () => {
+ipcMain.handle("tj:create-backup", async () => {
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     defaultPath: `TeacherJournal_Backup_${new Date().toISOString().split('T')[0]}.zip`,
     filters: [{ name: "ZIP Archives", extensions: ["zip"] }]
@@ -527,7 +538,7 @@ ipcMain.handle("tj:backup-create", async () => {
   }
 });
 
-ipcMain.handle("tj:backup-restore", async () => {
+ipcMain.handle("tj:restore-backup", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     properties: ["openFile"],
     filters: [{ name: "ZIP Archives", extensions: ["zip"] }]
@@ -536,12 +547,20 @@ ipcMain.handle("tj:backup-restore", async () => {
   
   try {
     const zip = new AdmZip(filePaths[0]);
+    const entries = zip.getEntries();
+    for (const entry of entries) {
+      const target = path.resolve(paths.root, entry.entryName);
+      if (!target.startsWith(paths.root + path.sep) && target !== paths.root) {
+        throw new Error("ZIP contains invalid path: " + entry.entryName);
+      }
+    }
+
     if (fs.existsSync(paths.files)) {
       fs.rmSync(paths.files, { recursive: true, force: true });
     }
     fs.mkdirSync(paths.files, { recursive: true });
     
-    zip.extractAllTo(paths.root, true /* overwrite */);
+    zip.extractAllTo(paths.root, true);
     
     app.relaunch();
     app.exit();
@@ -594,7 +613,15 @@ ipcMain.handle("tj:cloud-sync-download", async () => {
   try {
     await auth.syncDownload(CLOUD_BACKUP_PATH);
     const zip = new AdmZip(CLOUD_BACKUP_PATH);
-    
+
+    const entries = zip.getEntries();
+    for (const entry of entries) {
+      const target = path.resolve(paths.root, entry.entryName);
+      if (!target.startsWith(paths.root + path.sep) && target !== paths.root) {
+        throw new Error("ZIP contains invalid path: " + entry.entryName);
+      }
+    }
+
     if (fs.existsSync(paths.files)) {
       fs.rmSync(paths.files, { recursive: true, force: true });
     }

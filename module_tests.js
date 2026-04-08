@@ -500,7 +500,7 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
       questionsHTML += `</div>`;
       
       if (q.image) {
-        questionsHTML += `<img src="${q.image}" style="max-width: 400px; max-height: 300px; border-radius: 4px; margin-bottom: 12px; cursor: zoom-in; border: 1px solid var(--border-color);" onclick="window.previewImage('${q.image}')">`;
+        questionsHTML += `<img src="${q.image}" data-preview-image="${qi}" style="max-width: 400px; max-height: 300px; border-radius: 4px; margin-bottom: 12px; cursor: zoom-in; border: 1px solid var(--border-color);">`;
       }
       
       questionsHTML += `<div class="options-list" style="display: flex; flex-direction: column; gap: 8px;">`;
@@ -558,6 +558,15 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         
       </div>
     `;
+
+    // Event delegation for image previews (avoids inline onclick XSS)
+    window.$("#test-questions-area").addEventListener("click", (e) => {
+      const img = e.target.closest("[data-preview-image]");
+      if (img) {
+        const qi = parseInt(img.dataset.previewImage, 10);
+        if (test.questions[qi]?.image) window.previewImage(test.questions[qi].image);
+      }
+    });
 
     // Логіка таймера
     if (timerDuration > 0) {

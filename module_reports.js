@@ -386,7 +386,7 @@ function openSavedReport(reportId) {
       <div style="margin-bottom: 10px; padding: 10px; background: var(--panel-dark); border-radius: 6px;">
         <span style="color: var(--muted); font-size: 13px;">📅 Це збережена копія звіту від ${new Date(report.date).toLocaleString("uk-UA")}</span>
       </div>
-      ${report.html}
+      ${window.sanitizeHTML(report.html)}
     `;
     // Прокрутка екрану до звіту
     out.scrollIntoView({ behavior: 'smooth' });

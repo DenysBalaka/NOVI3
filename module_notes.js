@@ -257,7 +257,7 @@ function openNoteEditorTab(noteId) {
     
     // === Встановлюємо вміст і фокус (Без змін) ===
     if (note.content) {
-        richEditor.innerHTML = note.content;
+        richEditor.innerHTML = window.sanitizeHTML(note.content);
     } else {
         richEditor.innerHTML = '<p><br></p>'; 
     }

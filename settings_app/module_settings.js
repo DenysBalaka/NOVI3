@@ -1,4 +1,5 @@
 // === ФАЙЛ: settings_app/module_settings.js ===
+import { hashPassword } from '../utils.js';
 
 // Словник для красивих назв кнопок (для списку)
 const navNames = {
@@ -49,7 +50,7 @@ export function renderSettings() {
       <h3>Безпека <span style="font-weight: normal; font-size: 14px; color: var(--muted);">(для блокування доступу до програми)</span></h3>
       <p>Пароль вчителя (4 цифри). Використовується для швидкого блокування екрану.</p>
       <div class="form-group" style="max-width: 250px;">
-        <input type="password" class="input" id="teacher-pass" maxlength="4" value="${window.esc(window.state.settings.teacherPassword || "")}" placeholder="****">
+        <input type="password" class="input" id="teacher-pass" maxlength="4" value="" placeholder="${window.state.settings.teacherPassword ? '••••' : '****'}">
         <div id="save-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
       </div>
     </div>
@@ -98,13 +99,13 @@ export function renderSettings() {
   
   // 2. Логіка для Бекапів
   window.$("#btn-backup-create").onclick = async () => {
-    const res = await window.tj.backupCreate();
+    const res = await window.tj.createBackup();
     if (res && !res.error) await window.showCustomAlert("Успіх", "Резервну копію створено.");
     if (res?.error) await window.showCustomAlert("Помилка", res.error);
   };
   window.$("#btn-backup-restore").onclick = async () => {
     if (await window.showCustomConfirm("Відновлення", "Поточні дані будуть перезаписані. Програма перезапуститься. Продовжити?", "Відновити", "Скасувати", true)) {
-      const res = await window.tj.backupRestore();
+      const res = await window.tj.restoreBackup();
       if (res?.error) await window.showCustomAlert("Помилка", res.error);
     }
   };
@@ -112,10 +113,15 @@ export function renderSettings() {
   // 3. Логіка для Паролю (з вашого сніпету)
   const passInput = window.$("#teacher-pass");
   const feedbackEl = window.$("#save-feedback");
-  passInput.oninput = window.debounce(() => {
+  passInput.oninput = window.debounce(async () => {
     const newPass = passInput.value.trim();
-    if (newPass.length === 0 || newPass.length === 4) {
-      window.state.settings.teacherPassword = newPass || null;
+    if (newPass.length === 0) {
+      window.state.settings.teacherPassword = null;
+      window.saveSettings();
+      feedbackEl.textContent = "Збережено!";
+      setTimeout(() => feedbackEl.textContent = "", 2000);
+    } else if (newPass.length === 4) {
+      window.state.settings.teacherPassword = await hashPassword(newPass);
       window.saveSettings();
       feedbackEl.textContent = "Збережено!";
       setTimeout(() => feedbackEl.textContent = "", 2000);

@@ -4,7 +4,7 @@ import { debounce } from '../utils.js';
 window.$ = (s,el=document) => el.querySelector(s);
 window.$$ = (s,el=document) => Array.from(el.querySelectorAll(s));
 // === ВИПРАВЛЕНО: Прибрано зайвий \ в кінці рядка ===
-window.esc = (str) => String(str || "").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, ">");
+window.esc = (str) => String(str || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 let canvas, ctx, bgCanvas, bgCtx, boardFilePath = null;
 let boardData = { strokes: [], images: [], texts: [], shapes: [], template: 'blank' };
