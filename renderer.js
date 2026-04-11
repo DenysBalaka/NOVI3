@@ -4,7 +4,7 @@ import { openTab, setActive, closeTab } from './navigation.js';
 import { renderHome, showCalendarContextMenu } from './module_home.js';
 import { renderLesson, renderLessonsList, openOrCreateLesson, renderNewLessonDialog, showLessonListContextMenu } from './module_lessons.js';
 import { renderEditorPage, populateEditorClasses, moveClassOrder, populateEditorSubjects, showEditorContextMenu, bindEditorPageLogic } from './module_students.js';
-import { renderTests, renderRunTest, calcScore, previewImage } from './module_tests.js';
+import { renderTests, renderTestResults, renderRunTest, calcScore, previewImage } from './module_tests.js';
 import { renderReportPage, populateReportPageFilters, bindReportPageLogic, generateReportHTML } from './module_reports.js';
 import { renderNotesPage } from './module_notes.js';
 import { renderSettings, updateGoogleAuthStatusUI } from './settings_app/module_settings.js';
@@ -42,7 +42,7 @@ window.renderHome = renderHome; window.renderLesson = renderLesson; window.rende
 window.openOrCreateLesson = openOrCreateLesson; window.renderNewLessonDialog = renderNewLessonDialog;
 window.renderEditorPage = renderEditorPage; window.populateEditorClasses = populateEditorClasses; window.moveClassOrder = moveClassOrder;
 window.populateEditorSubjects = populateEditorSubjects; window.showEditorContextMenu = showEditorContextMenu; window.bindEditorPageLogic = bindEditorPageLogic;
-window.renderTests = renderTests; window.renderRunTest = renderRunTest; window.calcScore = calcScore; window.previewImage = previewImage;
+window.renderTests = renderTests; window.renderTestResults = renderTestResults; window.renderRunTest = renderRunTest; window.calcScore = calcScore; window.previewImage = previewImage;
 window.renderReportPage = renderReportPage; window.populateReportPageFilters = populateReportPageFilters; window.bindReportPageLogic = bindReportPageLogic; window.generateReportHTML = generateReportHTML;
 window.renderNotesPage = renderNotesPage; window.renderSettings = renderSettings; window.renderExportPage = renderExportPage;
 window.renderBoardPage = renderBoardPage; window.createNewBoard = createNewBoard;
@@ -76,6 +76,8 @@ async function handleAutoSyncResult(res, isLoginAttempt = false) {
     } else if (isLoginAttempt) {
       await window.showCustomAlert("Синхронізація", "Новий акаунт. Ваші дані будуть вивантажені при наступній синхронізації.");
     }
+  } else if (res && res.error === "CLOUD_IS_NEWER") {
+    console.log("Auto-sync skipped: cloud copy is newer than local data.");
   } else if (res && res.error) {
     console.error("Auto-sync error:", res.error);
     if (isLoginAttempt) {
@@ -154,6 +156,12 @@ async function init(){
   
   // === ВАША ЛОГІКА СОРТУВАННЯ МЕНЮ ===
   window.reorderNav();
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Доброго ранку" : hour < 18 ? "Доброго дня" : "Доброго вечора";
+  const teacherName = window.state.settings.teacherProfile?.fullName;
+  const displayName = teacherName ? `, ${teacherName.split(' ')[0]}` : ", вчителю";
+  window.mainHeader.innerHTML = `<h1>${greeting}${displayName}!</h1>`;
 
   renderHome(); bindNav();
 

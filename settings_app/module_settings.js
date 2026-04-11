@@ -23,148 +23,187 @@ export function renderSettings() {
   const tp = s.teacherProfile || {};
   const sem = s.semesters || [];
 
-  let teacherProfileBlock = `
-    <div class="export-section-info">
-      <h3>Профіль вчителя</h3>
-      <p>Ваші дані використовуються у заголовках звітів та експорті.</p>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 600px; margin-top: 12px;">
-        <div class="form-group">
-          <label for="tp-fullname">ПІБ</label>
-          <input class="input" id="tp-fullname" placeholder="Іванов Іван Іванович" value="${window.esc(tp.fullName || "")}">
-        </div>
-        <div class="form-group">
-          <label for="tp-school">Навчальний заклад</label>
-          <input class="input" id="tp-school" placeholder="Назва школи" value="${window.esc(tp.school || "")}">
-        </div>
-        <div class="form-group">
-          <label for="tp-position">Посада</label>
-          <input class="input" id="tp-position" placeholder="Вчитель" value="${window.esc(tp.position || "")}">
-        </div>
-        <div class="form-group">
-          <label for="tp-category">Кваліфікаційна категорія</label>
-          <select class="input" id="tp-category">
-            <option value="">-- Не вказано --</option>
-            ${CATEGORIES.map(c => `<option value="${window.esc(c)}" ${tp.category === c ? 'selected' : ''}>${window.esc(c)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="tp-title">Педагогічне звання</label>
-          <input class="input" id="tp-title" placeholder="Наприклад: Старший вчитель" value="${window.esc(tp.title || "")}">
-        </div>
-        <div class="form-group">
-          <label for="tp-experience">Стаж (років)</label>
-          <input class="input" id="tp-experience" type="number" min="0" max="60" placeholder="0" value="${window.esc(tp.experience || "")}">
-        </div>
-      </div>
-      <div id="tp-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
-    </div>
-  `;
-
-  let schoolYearBlock = `
-    <div class="export-section-info">
-      <h3>Навчальний рік та семестри</h3>
-      <p>Визначає діапазони дат для фільтрації та підсумків.</p>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 600px; margin-top: 12px;">
-        <div class="form-group" style="grid-column: 1 / -1;">
-          <label for="sy-year">Навчальний рік</label>
-          <input class="input" id="sy-year" placeholder="2025-2026" value="${window.esc(s.schoolYear || "")}">
-        </div>
-        ${sem.map((sem_item, idx) => `
-          <div class="form-group" style="grid-column: 1 / -1;">
-            <label><strong>${window.esc(sem_item.name)}</strong></label>
-          </div>
-          <div class="form-group">
-            <label for="sem-start-${idx}">Початок</label>
-            <input class="input" id="sem-start-${idx}" type="date" value="${sem_item.startDate || ''}">
-          </div>
-          <div class="form-group">
-            <label for="sem-end-${idx}">Кінець</label>
-            <input class="input" id="sem-end-${idx}" type="date" value="${sem_item.endDate || ''}">
-          </div>
-        `).join('')}
-      </div>
-      <div id="sy-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
-    </div>
-  `;
-
-  let authBlock = `
-    <div class="export-section-info">
-      <h3>Хмарна синхронізація (Google Drive)</h3>
-      <p>Увійдіть, щоб автоматично зберігати ваші дані у хмару та мати до них доступ з різних пристроїв.</p>
-    </div>
-    <div id="google-auth-status"></div>
-  `;
-
-  let backupBlock = `
-    <div class="export-section-info">
-      <h3>Локальний Архів <span style="font-weight: normal; font-size: 14px; color: var(--muted);">(для перенесення даних на інший пристрій без Google-авторизації)</span></h3>
-      <p>Створення повного файлу-архіву всіх ваших даних на цьому комп'ютері.</p>
-      <div style="margin-top: 12px; display: flex; gap: 10px;">
-        <button class="btn" id="btn-backup-create">Створити резервну копію</button>
-        <button class="btn danger" id="btn-backup-restore">Відновити з копії</button>
-      </div>
-    </div>
-  `;
-
-  let menuOrderBlock = `
-    <div class="export-section-info">
-      <h3>Персоналізація меню</h3>
-      <p>Налаштуйте порядок кнопок (перетягніть, щоб зберегти).</p>
-      <div class="editor-list" id="settings-nav-order-list" style="max-width: 300px; margin-top: 12px; background: var(--bg); border-radius: 8px;"></div>
-      <div id="nav-order-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
-    </div>
-  `;
-
-  let passwordBlock = `
-    <div class="export-section-info">
-      <h3>Безпека <span style="font-weight: normal; font-size: 14px; color: var(--muted);">(для блокування доступу до програми)</span></h3>
-      <p>Пароль вчителя (4 цифри). Використовується для швидкого блокування екрану.</p>
-      <div class="form-group" style="max-width: 250px;">
-        <input type="password" class="input" id="teacher-pass" maxlength="4" value="" placeholder="${s.teacherPassword ? '••••' : '****'}">
-        <div id="save-feedback" style="color: var(--grade-10); font-size: 14px; min-height: 1.2em; margin-top: 4px;"></div>
-      </div>
-    </div>
-  `;
-
-  let dataFolderBlock = `
-    <div class="export-section-info">
-      <h3>Локальна папка даних <span style="font-weight: normal; font-size: 14px; color: var(--muted);">(для ручної синхронізації через сторонні сервіси)</span></h3>
-      <p>Фізичний шлях до файлів програми на цьому комп'ютері.</p>
-      <div class="form-group">
-        <input type="text" class="input" value="${window.esc(window.paths?.root || "")}" readonly style="opacity: 0.7">
-      </div>
-    </div>
-  `;
-
   window.areaEl.innerHTML = `
-    <h2>Налаштування</h2>
+    <div class="settings-page">
+      <div class="export-page-header">
+        <div>
+          <h2 style="margin-bottom:4px;">Налаштування</h2>
+          <p style="color:var(--text-secondary); margin:0;">Персоналізуйте додаток та керуйте даними</p>
+        </div>
+      </div>
 
-    <div class="export-section">
-      ${teacherProfileBlock}
-    </div>
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(99,102,241,0.05));color:var(--accent);">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <div class="export-card-title">
+            <h3>Профіль вчителя</h3>
+            <p>Ваші дані використовуються у заголовках звітів та експорті</p>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div class="settings-form-grid">
+            <div class="form-group">
+              <label for="tp-fullname">ПІБ</label>
+              <input class="input" id="tp-fullname" placeholder="Іванов Іван Іванович" value="${window.esc(tp.fullName || "")}">
+            </div>
+            <div class="form-group">
+              <label for="tp-school">Навчальний заклад</label>
+              <input class="input" id="tp-school" placeholder="Назва школи" value="${window.esc(tp.school || "")}">
+            </div>
+            <div class="form-group">
+              <label for="tp-position">Посада</label>
+              <input class="input" id="tp-position" placeholder="Вчитель" value="${window.esc(tp.position || "")}">
+            </div>
+            <div class="form-group">
+              <label for="tp-category">Кваліфікаційна категорія</label>
+              <select class="input" id="tp-category">
+                <option value="">-- Не вказано --</option>
+                ${CATEGORIES.map(c => `<option value="${window.esc(c)}" ${tp.category === c ? 'selected' : ''}>${window.esc(c)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="tp-title">Педагогічне звання</label>
+              <input class="input" id="tp-title" placeholder="Наприклад: Старший вчитель" value="${window.esc(tp.title || "")}">
+            </div>
+            <div class="form-group">
+              <label for="tp-experience">Стаж (років)</label>
+              <input class="input" id="tp-experience" type="number" min="0" max="60" placeholder="0" value="${window.esc(tp.experience || "")}">
+            </div>
+          </div>
+          <div id="tp-feedback" class="settings-feedback"></div>
+        </div>
+      </div>
 
-    <div class="export-section">
-      ${schoolYearBlock}
-    </div>
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(234,179,8,0.15),rgba(234,179,8,0.05));color:#eab308;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div class="export-card-title">
+            <h3>Навчальний рік та семестри</h3>
+            <p>Визначає діапазони дат для фільтрації та підсумків</p>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div class="settings-form-grid">
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label for="sy-year">Навчальний рік</label>
+              <input class="input" id="sy-year" placeholder="2025-2026" value="${window.esc(s.schoolYear || "")}">
+            </div>
+            ${sem.map((sem_item, idx) => `
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label style="font-size:13px;color:var(--text-primary);font-weight:700;text-transform:none;">${window.esc(sem_item.name)}</label>
+              </div>
+              <div class="form-group">
+                <label for="sem-start-${idx}">Початок</label>
+                <input class="input" id="sem-start-${idx}" type="date" value="${sem_item.startDate || ''}">
+              </div>
+              <div class="form-group">
+                <label for="sem-end-${idx}">Кінець</label>
+                <input class="input" id="sem-end-${idx}" type="date" value="${sem_item.endDate || ''}">
+              </div>
+            `).join('')}
+          </div>
+          <div id="sy-feedback" class="settings-feedback"></div>
+        </div>
+      </div>
 
-    <div class="export-section">
-      ${menuOrderBlock}
-    </div>
+      <div class="settings-row">
+        <div class="settings-card settings-card--half">
+          <div class="settings-card-header">
+            <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(168,85,247,0.05));color:#a855f7;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            </div>
+            <div class="export-card-title">
+              <h3>Персоналізація меню</h3>
+              <p>Перетягніть для зміни порядку</p>
+            </div>
+          </div>
+          <div class="settings-card-body">
+            <div class="editor-list" id="settings-nav-order-list" style="background: var(--bg); border-radius: var(--radius-md);"></div>
+            <div id="nav-order-feedback" class="settings-feedback"></div>
+          </div>
+        </div>
 
-    <div class="export-section" id="google-settings-section">
-      ${authBlock}
-    </div>
+        <div class="settings-card settings-card--half">
+          <div class="settings-card-header">
+            <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(239,68,68,0.15),rgba(239,68,68,0.05));color:var(--danger);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <div class="export-card-title">
+              <h3>Безпека</h3>
+              <p>Пароль для блокування екрану (4 цифри)</p>
+            </div>
+          </div>
+          <div class="settings-card-body">
+            <div class="form-group" style="max-width: 250px;">
+              <label for="teacher-pass">Пароль вчителя</label>
+              <input type="password" class="input" id="teacher-pass" maxlength="4" value="" placeholder="${s.teacherPassword ? '••••' : '****'}">
+            </div>
+            <div id="save-feedback" class="settings-feedback"></div>
+          </div>
+        </div>
+      </div>
 
-    <div class="export-section">
-      ${backupBlock}
-    </div>
-    
-    <div class="export-section">
-      ${passwordBlock}
-    </div>
+      <div class="settings-card" id="google-settings-section">
+        <div class="settings-card-header">
+          <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(34,197,94,0.15),rgba(34,197,94,0.05));color:#22c55e;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+          </div>
+          <div class="export-card-title">
+            <h3>Хмарна синхронізація</h3>
+            <p>Автоматичне збереження даних на Google Drive</p>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div id="google-auth-status"></div>
+        </div>
+      </div>
 
-    <div class="export-section">
-      ${dataFolderBlock}
+      <div class="settings-row">
+        <div class="settings-card settings-card--half">
+          <div class="settings-card-header">
+            <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));color:#3b82f6;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="export-card-title">
+              <h3>Локальний архів</h3>
+              <p>Резервне копіювання без Google</p>
+            </div>
+          </div>
+          <div class="settings-card-body">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button class="btn" id="btn-backup-create">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Створити копію
+              </button>
+              <button class="btn danger" id="btn-backup-restore">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Відновити з копії
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-card settings-card--half">
+          <div class="settings-card-header">
+            <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(113,113,122,0.15),rgba(113,113,122,0.05));color:var(--muted);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <div class="export-card-title">
+              <h3>Локальна папка даних</h3>
+              <p>Шлях до файлів на цьому комп'ютері</p>
+            </div>
+          </div>
+          <div class="settings-card-body">
+            <div class="form-group">
+              <input type="text" class="input" value="${window.esc(window.paths?.root || "")}" readonly style="opacity: 0.7; font-size: 12px;">
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -338,25 +377,41 @@ export async function updateGoogleAuthStatusUI() {
   
   if (profile) {
     container.innerHTML = `
-      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-        <div style="text-align: center;">
-          <img src="${window.esc(profile.picture)}" style="border-radius: 50%; width: 50px; height: 50px;">
-          <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0;">${window.esc(profile.email)}</p>
+      <div class="cloud-auth-grid">
+        <div class="cloud-auth-row">
+          <div class="cloud-profile">
+            <img src="${window.esc(profile.picture)}" class="cloud-avatar">
+            <div>
+              <div style="font-weight:600;">${window.esc(profile.name || profile.given_name || '')}</div>
+              <div style="font-size:12px;color:var(--muted);">${window.esc(profile.email)}</div>
+            </div>
+          </div>
+
+          <label class="toggle-switch" style="margin-left: auto;">
+            <input type="checkbox" id="settings-autosync">
+            <span class="toggle-track"></span>
+            <span class="toggle-label">Автосинхронізація</span>
+          </label>
         </div>
         
-        <div class="form-group" style="flex: 1;">
-          <label>Статус синхронізації</label>
-          <div id="cloud-info-text" style="color: var(--muted); font-size: 14px; min-height: 1.5em;">...</div>
+        <div class="cloud-status-bar">
+          <span class="cloud-status-dot cloud-status-dot--loading" id="cloud-status-dot"></span>
+          <span id="cloud-info-text" style="color: var(--text-secondary);">Перевірка...</span>
         </div>
-        
-        <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
-          <label for="settings-autosync" style="cursor: pointer;">Автосинхронізація</label>
-          <input type="checkbox" id="settings-autosync" style="width: 20px; height: 20px; cursor: pointer;">
-        </div>
-        <div class="export-section-actions" style="margin-left: auto;">
-          <button class="btn" id="btn-cloud-upload">☁️⬆️ Синхронізувати зараз</button>
-          <button class="btn ghost" id="btn-cloud-download">☁️⬇️ Завантажити з хмари</button>
-          <button class="btn danger" id="btn-cloud-logout">Вийти</button>
+
+        <div class="cloud-actions">
+          <button class="btn" id="btn-cloud-upload">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+            Синхронізувати
+          </button>
+          <button class="btn ghost" id="btn-cloud-download">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+            З хмари
+          </button>
+          <button class="btn danger" id="btn-cloud-logout">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Вийти
+          </button>
         </div>
       </div>
     `;
@@ -370,59 +425,99 @@ export async function updateGoogleAuthStatusUI() {
     
     window.$("#btn-cloud-logout").onclick = window.handleGoogleLogout;
     
+    const UPLOAD_BTN_HTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg> Синхронізувати';
+    const resetUploadBtn = (btn) => { btn.disabled = false; btn.innerHTML = UPLOAD_BTN_HTML; };
+
     window.$("#btn-cloud-upload").onclick = async () => {
-      const btn = window.$("#btn-cloud-upload"); btn.disabled = true; btn.textContent = "⏳ Вивантаження...";
+      const btn = window.$("#btn-cloud-upload"); btn.disabled = true; btn.innerHTML = "Вивантаження...";
       const res = await window.tj.cloudSyncUpload();
       
       if (res && res.error === "LOCAL_DATA_EMPTY") {
-        btn.disabled = false; btn.textContent = "☁️⬆️ Синхронізувати зараз";
-        await window.showCustomAlert("Дію скасовано", "Ваші локальні дані порожні. Вивантаження скасовано, щоб не затерти хмарну копію.\n\nЯкщо ви хочете відновити дані, натисніть 'Завантажити з хмари'.");
+        resetUploadBtn(btn);
+        await window.showCustomAlert("Дію скасовано", "Ваші локальні дані порожні. Вивантаження скасовано, щоб не затерти хмарну копію.\n\nЯкщо ви хочете відновити дані, натисніть «З хмари».");
+
+      } else if (res && res.error === "CLOUD_IS_NEWER") {
+        const cloudDate = new Date(res.cloudDate).toLocaleString("uk-UA");
+        const force = await window.showCustomConfirm(
+          "Хмарна копія новіша",
+          `У хмарі є новіша копія від ${cloudDate}.\n\nЯкщо продовжити, хмарна копія буде замінена вашими локальними даними.\n\nПеред цим буде автоматично створено страховий бекап.`,
+          "Замінити хмарну копію",
+          "Скасувати",
+          true
+        );
+        if (force) {
+          btn.disabled = true; btn.innerHTML = "Вивантаження...";
+          const forceRes = await window.tj.cloudSyncUploadForce();
+          resetUploadBtn(btn);
+          if (forceRes && forceRes.success) {
+            await window.showCustomAlert("Успіх", "Дані збережено у хмару!");
+            updateCloudInfo();
+          } else {
+            await window.showCustomAlert("Помилка", forceRes?.error || "Невідома помилка");
+          }
+        } else {
+          resetUploadBtn(btn);
+        }
       
-      } else if (res.success) {
-        btn.disabled = false; btn.textContent = "☁️⬆️ Синхронізувати зараз";
+      } else if (res && res.success) {
+        resetUploadBtn(btn);
         await window.showCustomAlert("Успіх", "Дані збережено у хмару!"); 
         updateCloudInfo();
       } else {
-        btn.disabled = false; btn.textContent = "☁️⬆️ Синхронізувати зараз";
-        await window.showCustomAlert("Помилка", res.error);
+        resetUploadBtn(btn);
+        await window.showCustomAlert("Помилка", res?.error || "Невідома помилка");
       }
     };
     
     window.$("#btn-cloud-download").onclick = async () => {
-      if (await window.showCustomConfirm("Завантаження", "Локальні дані будуть замінені. Програма перезапуститься. Продовжити?", "Завантажити", "Скасувати", true)) {
-        const btn = window.$("#btn-cloud-download"); btn.disabled = true; btn.textContent = "⏳ Завантаження...";
+      if (await window.showCustomConfirm(
+        "Завантаження з хмари",
+        "Локальні дані будуть замінені хмарною копією.\n\nПеред цим буде автоматично створено страховий бекап ваших поточних даних.\n\nПрограма перезапуститься. Продовжити?",
+        "Завантажити",
+        "Скасувати",
+        true
+      )) {
+        const btn = window.$("#btn-cloud-download"); btn.disabled = true; btn.innerHTML = "Завантаження...";
         const res = await window.tj.cloudSyncDownload();
-        if (res?.error) { btn.disabled = false; btn.textContent = "☁️⬇️ Завантажити з хмари"; await window.showCustomAlert("Помилка", res.error); }
+        if (res?.error) { btn.disabled = false; btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg> З хмари'; await window.showCustomAlert("Помилка", res.error); }
       }
     };
     updateCloudInfo();
   } else {
-    container.innerHTML = `<button class="btn" id="google-login-btn">Увійти через Google</button>`;
+    container.innerHTML = `<button class="btn" id="google-login-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Увійти через Google</button>`;
     window.$("#google-login-btn").onclick = window.handleGoogleLogin;
   }
 }
 
 async function updateCloudInfo() {
   const el = window.$("#cloud-info-text");
+  const dot = window.$("#cloud-status-dot");
   if (!el) return;
-  el.textContent = "Завантаження...";
+
+  const setStatus = (text, state) => {
+    el.textContent = text;
+    if (dot) {
+      dot.className = `cloud-status-dot cloud-status-dot--${state}`;
+    }
+  };
+
+  setStatus("Перевірка...", "loading");
   try {
     const meta = await window.tj.googleGetBackupMeta();
     if (meta?.error) throw new Error(meta.error);
     if (meta && meta.id) {
       const d = new Date(meta.modifiedTime); 
       if (isNaN(d.getTime())) {
-        el.textContent = "Помилка формату дати.";
+        setStatus("Помилка формату дати.", "error");
         return;
       }
       const dateStr = d.toLocaleDateString("uk-UA", { day: '2-digit', month: '2-digit', year: 'numeric' });
       const timeStr = d.toLocaleTimeString("uk-UA", { hour: '2-digit', minute: '2-digit' });
-      el.textContent = `Остання копія: ${dateStr}, ${timeStr}`;
+      setStatus(`Остання копія: ${dateStr}, ${timeStr}`, "ok");
     } else {
-      el.textContent = "У хмарі ще немає резервних копій.";
+      setStatus("У хмарі ще немає резервних копій.", "loading");
     }
   } catch(e) {
-    el.textContent = `Помилка: ${e.message}`;
-    el.style.color = "var(--danger)";
+    setStatus(`Помилка: ${e.message}`, "error");
   }
 }

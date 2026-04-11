@@ -140,13 +140,19 @@ ipcMain.handle("tj:win-close", async () => {
       console.log("Hiding window and syncing data before exit...");
       if (win) win.hide();
       if (boardWindow) boardWindow.hide(); 
-      try {
-        createZipBackup(CLOUD_BACKUP_PATH); 
-        await auth.syncUpload(CLOUD_BACKUP_PATH); 
-        try { fs.unlinkSync(CLOUD_BACKUP_PATH); } catch(e){} 
-        console.log("Sync on exit successful.");
-      } catch (syncErr) {
-        console.error("Sync on exit failed, but quitting anyway:", syncErr.message);
+
+      if (!isLocalDataEmpty()) {
+        createSafetyBackup("before-exit");
+        try {
+          createZipBackup(CLOUD_BACKUP_PATH); 
+          await auth.syncUpload(CLOUD_BACKUP_PATH); 
+          try { fs.unlinkSync(CLOUD_BACKUP_PATH); } catch(e){} 
+          console.log("Sync on exit successful.");
+        } catch (syncErr) {
+          console.error("Sync on exit failed, but safety backup exists:", syncErr.message);
+        }
+      } else {
+        console.log("Local data empty, skipping sync on exit to preserve cloud data.");
       }
       app.quit();
     } else {
@@ -287,65 +293,93 @@ ipcMain.handle("tj:write-csv", async (e, p, txt) => {
   } catch (err) { return { error: err.message }; }
 });
 
-// === ЗМІНА №2: Оновлено логіку ширини колонок для XLSX ===
 ipcMain.handle("tj:write-xlsx", async (e, p, data) => {
   try {
     if (!isExportPathSafe(p)) return { error: "Path rejected" };
     const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Електронний журнал';
+    workbook.created = new Date();
 
-    // Допоміжна функція для стилізації аркуша
-    const formatSheet = (sheet, rows) => {
+    const formatSheet = (sheet, rows, sheetTitle) => {
       if (!rows || rows.length === 0) return;
       
-      // 1. Створюємо колонки з автошириною (на основі назв)
-      const columns = Object.keys(rows[0]).map(key => ({
+      const keys = Object.keys(rows[0]);
+
+      const maxContentWidths = {};
+      keys.forEach(key => { maxContentWidths[key] = key.length; });
+      rows.forEach(row => {
+        keys.forEach(key => {
+          const val = String(row[key] || '');
+          if (val.length > maxContentWidths[key]) maxContentWidths[key] = val.length;
+        });
+      });
+
+      const columns = keys.map(key => ({
         header: key,
         key: key,
-        width: Math.max(key.length + 5, 12) 
+        width: Math.min(Math.max(maxContentWidths[key] + 3, 10), 40)
       }));
       sheet.columns = columns;
 
-      // 2. Додаємо дані
       rows.forEach(row => sheet.addRow(row));
 
-      // 3. Стилізуємо заголовок (перший рядок)
       const headerRow = sheet.getRow(1);
-      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }; // Білий жирний текст
+      headerRow.height = 28;
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Calibri' };
       headerRow.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF4F81BD' } // Приємний синій фон
+        type: 'pattern', pattern: 'solid',
+        fgColor: { argb: 'FF4472C4' }
       };
-      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
-      // 4. Додаємо рамки для всіх клітинок та вирівнювання
+      const thinBorder = {
+        top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        right: { style: 'thin', color: { argb: 'FFD9D9D9' } }
+      };
+      const headerBorder = {
+        top: { style: 'thin', color: { argb: 'FF2F5496' } },
+        left: { style: 'thin', color: { argb: 'FF2F5496' } },
+        bottom: { style: 'medium', color: { argb: 'FF2F5496' } },
+        right: { style: 'thin', color: { argb: 'FF2F5496' } }
+      };
+
+      headerRow.eachCell({ includeEmpty: true }, (cell) => {
+        cell.border = headerBorder;
+      });
+
       sheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= 1) return;
+        const isEven = rowNumber % 2 === 0;
         row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-          // Рамки
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' }
-          };
-          // Вирівнювання для даних
-          if (rowNumber > 1) {
-             cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+          cell.border = thinBorder;
+          cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 ? 'left' : 'center', wrapText: true };
+          cell.font = { size: 10, name: 'Calibri' };
+          if (isEven) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F7FB' } };
+          }
+          const val = String(cell.value || '');
+          if (val === 'Н' || val === 'ні') {
+            cell.font = { size: 10, name: 'Calibri', color: { argb: 'FFDC2626' }, bold: true };
+          } else if (val === '✓' || val === 'так') {
+            cell.font = { size: 10, name: 'Calibri', color: { argb: 'FF16A34A' }, bold: true };
           }
         });
       });
+
+      sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: keys.length } };
+      sheet.views = [{ state: 'frozen', ySplit: 1 }];
     };
 
-    // Перевіряємо, чи дані це масив (один аркуш) чи об'єкт (багато аркушів по класах)
     if (Array.isArray(data)) {
       const sheet = workbook.addWorksheet("Експорт");
-      formatSheet(sheet, data);
+      formatSheet(sheet, data, "Експорт");
     } else if (typeof data === 'object') {
       for (const [sheetName, rows] of Object.entries(data)) {
-        // Назва аркуша в Excel не може перевищувати 31 символ
         const safeName = String(sheetName).substring(0, 31);
         const sheet = workbook.addWorksheet(safeName);
-        formatSheet(sheet, rows);
+        formatSheet(sheet, rows, safeName);
       }
     }
 
@@ -357,19 +391,19 @@ ipcMain.handle("tj:write-xlsx", async (e, p, data) => {
   }
 });
 
-// Експорт Тестів (DOCX) (без змін, помилку дублювання виправлено минулого разу)
 ipcMain.handle("tj:export-test-docx", async (e, p, arg1, arg2) => {
   try {
     if (!isExportPathSafe(p)) return { error: "Path rejected" };
+    const { AlignmentType, HeadingLevel, BorderStyle, PageNumber, Footer, Header, TabStopPosition, TabStopType } = require("docx");
     let testTitle = "Тест";
     let questionsList = [];
     let isTeacher = false;
+    let testClassName = "";
 
-    // 1. РОЗУМНИЙ ПАРСЕР ДАНИХ (вгадуємо, що саме передав додаток)
     if (arg1 && typeof arg1 === 'object' && Array.isArray(arg1.questions)) {
-        // Додаток передав весь об'єкт тесту повністю + режим
         testTitle = arg1.title || "Тест";
         questionsList = arg1.questions;
+        testClassName = arg1.className || "";
         isTeacher = arg2 === true || arg2 === "teacher";
     } else if (typeof arg1 === 'string') {
         testTitle = arg1;
@@ -385,51 +419,77 @@ ipcMain.handle("tj:export-test-docx", async (e, p, arg1, arg2) => {
         }
     }
 
-    // Відсіюємо порожні елементи
     questionsList = questionsList.filter(q => q && typeof q === 'object');
+    const totalPoints = questionsList.reduce((sum, q) => sum + (parseInt(q.points, 10) || 1), 0);
 
     const docElements = [];
 
-    // 2. Шапка тесту
     docElements.push(new Paragraph({
-      children: [new TextRun({ text: testTitle, bold: true, size: 32 })],
+      children: [new TextRun({ text: testTitle, bold: true, size: 36, font: 'Calibri' })],
       alignment: "center",
+      spacing: { after: 100 },
+      heading: HeadingLevel.HEADING_1
+    }));
+
+    if (testClassName) {
+      docElements.push(new Paragraph({
+        children: [new TextRun({ text: `Клас: ${testClassName}`, size: 22, color: '666666', font: 'Calibri' })],
+        alignment: "center",
+        spacing: { after: 80 }
+      }));
+    }
+
+    docElements.push(new Paragraph({
+      children: [new TextRun({ text: `Кількість питань: ${questionsList.length}    |    Максимальний бал: ${totalPoints}`, size: 20, color: '888888', font: 'Calibri' })],
+      alignment: "center",
+      spacing: { after: 100 }
+    }));
+
+    docElements.push(new Paragraph({
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '4472C4' } },
       spacing: { after: 300 }
     }));
 
-    // 3. Поля ПІБ або Позначка для вчителя
     if (!isTeacher) {
         docElements.push(new Paragraph({
           children: [
-            new TextRun({ text: "ПІБ: ________________________________________   Клас: _______   Дата: ________", size: 24 })
+            new TextRun({ text: "Прізвище, ім'я: ", size: 24, font: 'Calibri', bold: true }),
+            new TextRun({ text: "___________________________________________", size: 24, font: 'Calibri', color: 'AAAAAA' })
           ],
-          spacing: { after: 600 }
+          spacing: { after: 120 }
+        }));
+        docElements.push(new Paragraph({
+          children: [
+            new TextRun({ text: "Клас: ", size: 24, font: 'Calibri', bold: true }),
+            new TextRun({ text: "____________", size: 24, font: 'Calibri', color: 'AAAAAA' }),
+            new TextRun({ text: "          Дата: ", size: 24, font: 'Calibri', bold: true }),
+            new TextRun({ text: "____________", size: 24, font: 'Calibri', color: 'AAAAAA' })
+          ],
+          spacing: { after: 400 }
         }));
     } else {
         docElements.push(new Paragraph({
-          children: [
-            new TextRun({ text: "ВАРІАНТ ДЛЯ ВЧИТЕЛЯ (з відповідями)", bold: true, color: "FF0000", size: 24 })
-          ],
-          spacing: { after: 600 },
+          children: [new TextRun({ text: "⚑ ВАРІАНТ ДЛЯ ВЧИТЕЛЯ (з відповідями)", bold: true, color: "CC0000", size: 26, font: 'Calibri' })],
+          spacing: { after: 400 },
           alignment: "center"
         }));
     }
 
-    // 4. Формуємо список питань
     questionsList.forEach((q, index) => {
       let rawText = q.text || q.question || q.title || "Питання без тексту";
       let cleanText = String(rawText).replace(/^\d+[\.\)]\s*/, '');
+      const points = parseInt(q.points, 10) || 1;
+      const pointsLabel = points === 1 ? 'бал' : (points < 5 ? 'бали' : 'балів');
 
-      // Текст питання
       docElements.push(new Paragraph({
         children: [
-          new TextRun({ text: `${index + 1}. `, bold: true, size: 24 }),
-          new TextRun({ text: cleanText, size: 24 })
+          new TextRun({ text: `${index + 1}. `, bold: true, size: 24, font: 'Calibri', color: '4472C4' }),
+          new TextRun({ text: cleanText, size: 24, font: 'Calibri' }),
+          new TextRun({ text: `  (${points} ${pointsLabel})`, size: 20, font: 'Calibri', color: '999999', italics: true }),
         ],
-        spacing: { before: 240, after: 120 }
+        spacing: { before: 300, after: 120 }
       }));
 
-      // ФОТОГРАФІЯ (якщо є)
       let imgDataUrl = q.image || q.img || q.picture || q.photo;
       if (imgDataUrl && typeof imgDataUrl === 'string' && imgDataUrl.includes('base64,')) {
          try {
@@ -437,10 +497,7 @@ ipcMain.handle("tj:export-test-docx", async (e, p, arg1, arg2) => {
            const imageBuffer = Buffer.from(base64Data, 'base64');
            docElements.push(new Paragraph({
              children: [
-               new ImageRun({
-                 data: imageBuffer,
-                 transformation: { width: 300, height: 200 } // Стандартний розмір фото в Word
-               })
+               new ImageRun({ data: imageBuffer, transformation: { width: 350, height: 230 } })
              ],
              alignment: "center",
              spacing: { after: 120 }
@@ -450,14 +507,12 @@ ipcMain.handle("tj:export-test-docx", async (e, p, arg1, arg2) => {
          }
       }
 
-      // Варіанти відповідей
       let options = q.options || q.answers || q.variants || [];
       if (Array.isArray(options) && options.length > 0) {
         const letters = ["А", "Б", "В", "Г", "Д", "Е", "Є", "Ж", "З", "И", "І"];
 
         options.forEach((opt, optIndex) => {
           const letter = letters[optIndex] || "-";
-
           let optText = "";
           let isCorrect = false;
 
@@ -468,44 +523,56 @@ ipcMain.handle("tj:export-test-docx", async (e, p, arg1, arg2) => {
               isCorrect = opt.correct === true || opt.isCorrect === true;
           }
 
-          let runProps = { size: 24 };
-          let bulletText = `    ${letter}) `;
-
-          // Якщо режим вчителя і це правильна відповідь - виділяємо!
+          const children = [];
           if (isTeacher && isCorrect) {
-              runProps.bold = true;
-              runProps.color = "008000"; // Зелений колір
-              optText += "  ✓ Правильна";
+            children.push(new TextRun({ text: `    ${letter}) `, bold: true, size: 24, font: 'Calibri', color: '16A34A' }));
+            children.push(new TextRun({ text: String(optText), bold: true, size: 24, font: 'Calibri', color: '16A34A' }));
+            children.push(new TextRun({ text: "  ✓", bold: true, size: 24, font: 'Calibri', color: '16A34A' }));
+          } else {
+            children.push(new TextRun({ text: `    ${letter}) `, bold: true, size: 24, font: 'Calibri' }));
+            children.push(new TextRun({ text: String(optText), size: 24, font: 'Calibri' }));
           }
 
-          docElements.push(new Paragraph({
-            children: [
-              new TextRun({ text: bulletText, bold: true, size: 24 }),
-              new TextRun({ text: String(optText), ...runProps })
-            ],
-            spacing: { after: 80 }
-          }));
+          docElements.push(new Paragraph({ children, spacing: { after: 60 } }));
         });
       } else {
-         // Лінії для відкритих питань (якщо немає варіантів відповідей)
          docElements.push(new Paragraph({
-            children: [new TextRun({ text: "    Відповідь: _________________________________________________________", size: 24 })],
-            spacing: { after: 200 }
+            children: [new TextRun({ text: "    Відповідь: ___________________________________________________________", size: 24, font: 'Calibri', color: 'BBBBBB' })],
+            spacing: { after: 120 }
          }));
          if (!isTeacher) {
              docElements.push(new Paragraph({
-                children: [new TextRun({ text: "    ____________________________________________________________________", size: 24 })],
+                children: [new TextRun({ text: "    ______________________________________________________________________", size: 24, font: 'Calibri', color: 'BBBBBB' })],
                 spacing: { after: 200 }
              }));
          }
       }
     });
 
-    const doc = new Document({ sections: [{ properties: {}, children: docElements }] });
-    const buffer = await Packer.toBuffer(doc);
-    const fs = require('fs');
-    fs.writeFileSync(p, buffer);
+    const footerParagraph = new Paragraph({
+      children: [
+        new TextRun({ text: "Електронний журнал  •  Сторінка ", size: 16, color: 'AAAAAA', font: 'Calibri' }),
+        new TextRun({ children: [PageNumber.CURRENT], size: 16, color: 'AAAAAA', font: 'Calibri' }),
+        new TextRun({ text: " з ", size: 16, color: 'AAAAAA', font: 'Calibri' }),
+        new TextRun({ children: [PageNumber.TOTAL_PAGES], size: 16, color: 'AAAAAA', font: 'Calibri' }),
+      ],
+      alignment: "center"
+    });
 
+    const doc = new Document({
+      sections: [{
+        properties: {
+          page: {
+            margin: { top: 720, right: 720, bottom: 720, left: 720 }
+          }
+        },
+        footers: { default: new Footer({ children: [footerParagraph] }) },
+        children: docElements
+      }]
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    fs.writeFileSync(p, buffer);
     return true;
   } catch (err) {
     console.error("Помилка експорту Docx:", err);
@@ -606,33 +673,103 @@ ipcMain.handle("tj:restore-backup", async () => {
 
 // === IPC: Хмарна синхронізація ===
 const CLOUD_BACKUP_PATH = path.join(paths.root, "cloud_backup.zip");
+const SAFETY_BACKUP_DIR = path.join(paths.root, "safety_backups");
+
+function ensureSafetyDir() {
+  if (!fs.existsSync(SAFETY_BACKUP_DIR)) {
+    fs.mkdirSync(SAFETY_BACKUP_DIR, { recursive: true });
+  }
+}
+
+function createSafetyBackup(reason) {
+  ensureSafetyDir();
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safePath = path.join(SAFETY_BACKUP_DIR, `safety_${reason}_${stamp}.zip`);
+  try {
+    createZipBackup(safePath);
+    console.log(`Safety backup created: ${safePath}`);
+    pruneSafetyBackups();
+    return safePath;
+  } catch (e) {
+    console.error("Failed to create safety backup:", e.message);
+    return null;
+  }
+}
+
+function pruneSafetyBackups() {
+  try {
+    const MAX_BACKUPS = 5;
+    const files = fs.readdirSync(SAFETY_BACKUP_DIR)
+      .filter(f => f.startsWith("safety_") && f.endsWith(".zip"))
+      .map(f => ({ name: f, time: fs.statSync(path.join(SAFETY_BACKUP_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.time - a.time);
+    for (let i = MAX_BACKUPS; i < files.length; i++) {
+      fs.unlinkSync(path.join(SAFETY_BACKUP_DIR, files[i].name));
+    }
+  } catch (e) {
+    console.warn("Prune safety backups warning:", e.message);
+  }
+}
+
+function isLocalDataEmpty() {
+  let lessonsData = [];
+  let studentsData = {};
+  try {
+    if (fs.existsSync(paths.lessonsPath)) {
+      const content = fs.readFileSync(paths.lessonsPath, "utf-8");
+      if (content) lessonsData = JSON.parse(content);
+    }
+    if (fs.existsSync(paths.studentsPath)) {
+      const content = fs.readFileSync(paths.studentsPath, "utf-8");
+      if (content) studentsData = JSON.parse(content);
+    }
+  } catch (e) {
+    console.warn("Could not parse local data for safety check:", e.message);
+  }
+  const emptyLessons = !Array.isArray(lessonsData) || lessonsData.length === 0;
+  const emptyStudents = typeof studentsData !== 'object' || Object.keys(studentsData).length === 0;
+  return emptyLessons && emptyStudents;
+}
 
 ipcMain.handle("tj:cloud-sync-upload", async () => {
   try {
-    
-    let lessonsData = [];
-    let studentsData = {};
-    try {
-      if (fs.existsSync(paths.lessonsPath)) {
-        const content = fs.readFileSync(paths.lessonsPath, "utf-8");
-        if (content) lessonsData = JSON.parse(content);
-      }
-      if (fs.existsSync(paths.studentsPath)) {
-        const content = fs.readFileSync(paths.studentsPath, "utf-8");
-        if (content) studentsData = JSON.parse(content);
-      }
-    } catch (e) {
-      console.warn("Could not parse local data for safety check:", e.message);
-    }
-
-    const isLessonsEmpty = !Array.isArray(lessonsData) || lessonsData.length === 0;
-    const isStudentsEmpty = typeof studentsData !== 'object' || Object.keys(studentsData).length === 0;
-
-    if (isLessonsEmpty && isStudentsEmpty) {
-      console.warn("Upload blocked: Local data appears empty. Aborting to prevent data loss.");
+    if (isLocalDataEmpty()) {
+      console.warn("Upload blocked: Local data appears empty.");
       return { error: "LOCAL_DATA_EMPTY" };
     }
 
+    let cloudMeta = null;
+    try { cloudMeta = await auth.getBackupMetadata(); } catch(e) {}
+
+    if (cloudMeta && cloudMeta.modifiedTime) {
+      const cloudDate = new Date(cloudMeta.modifiedTime);
+      const localModTimes = [
+        paths.lessonsPath, paths.studentsPath, paths.settingsPath,
+        paths.testsPath, paths.notesPath, paths.reportsPath
+      ].filter(p => fs.existsSync(p)).map(p => fs.statSync(p).mtimeMs);
+      const latestLocal = Math.max(...localModTimes, 0);
+
+      if (latestLocal > 0 && cloudDate.getTime() > latestLocal + 60000) {
+        return { error: "CLOUD_IS_NEWER", cloudDate: cloudMeta.modifiedTime };
+      }
+    }
+
+    createSafetyBackup("before-upload");
+    createZipBackup(CLOUD_BACKUP_PATH);
+    await auth.syncUpload(CLOUD_BACKUP_PATH);
+    try { fs.unlinkSync(CLOUD_BACKUP_PATH); } catch(e){}
+    return { success: true, date: new Date().toISOString() };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle("tj:cloud-sync-upload-force", async () => {
+  try {
+    if (isLocalDataEmpty()) {
+      return { error: "LOCAL_DATA_EMPTY" };
+    }
+    createSafetyBackup("before-force-upload");
     createZipBackup(CLOUD_BACKUP_PATH);
     await auth.syncUpload(CLOUD_BACKUP_PATH);
     try { fs.unlinkSync(CLOUD_BACKUP_PATH); } catch(e){}
@@ -644,6 +781,8 @@ ipcMain.handle("tj:cloud-sync-upload", async () => {
 
 ipcMain.handle("tj:cloud-sync-download", async () => {
   try {
+    createSafetyBackup("before-download");
+
     await auth.syncDownload(CLOUD_BACKUP_PATH);
     const zip = new AdmZip(CLOUD_BACKUP_PATH);
 

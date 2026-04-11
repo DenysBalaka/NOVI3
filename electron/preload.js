@@ -36,8 +36,9 @@ contextBridge.exposeInMainWorld("tj", {
   googleLogout: () => ipcRenderer.invoke("tj:google-logout"),
   googleGetProfile: () => ipcRenderer.invoke("tj:google-get-profile"),
   googleGetBackupMeta: () => ipcRenderer.invoke("tj:google-get-backup-meta"), // Отримати дату останнього бекапу
-  cloudSyncUpload: () => ipcRenderer.invoke("tj:cloud-sync-upload"),     // Завантажити в хмару
-  cloudSyncDownload: () => ipcRenderer.invoke("tj:cloud-sync-download"), // Відновити з хмари
+  cloudSyncUpload: () => ipcRenderer.invoke("tj:cloud-sync-upload"),
+  cloudSyncUploadForce: () => ipcRenderer.invoke("tj:cloud-sync-upload-force"),
+  cloudSyncDownload: () => ipcRenderer.invoke("tj:cloud-sync-download"),
 
   // Локальне резервне копіювання
   createBackup: () => ipcRenderer.invoke("tj:create-backup"),

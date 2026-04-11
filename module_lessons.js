@@ -55,7 +55,7 @@ export function renderNewLessonDialog(dateKey, contextData = {}) {
       <select id="new-lesson-class" class="input"></select>
       <label for="new-lesson-subject">Оберіть предмет:</label>
       <select id="new-lesson-subject" class="input"></select>
-      <button id="create-lesson-btn" class="btn">Створити урок</button>
+      <button id="create-lesson-btn" class="btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Створити урок</button>
     </div>
   `;
   const classSelect = window.$("#new-lesson-class");
@@ -127,8 +127,8 @@ export function renderLesson(id){
       <select class="input" id="l-class" style="min-width: 100px; max-width: 200px;"></select>
       <select class="input" id="l-subj" style="min-width: 120px; max-width: 220px;"></select>
       <input class="input title-input" id="l-title" placeholder="Тема уроку" value="${window.esc(les.title)}">
-      <button class="btn" id="l-createboard">🎨 Створити дошку</button>
-      <button class="btn" id="l-addfiles">+ Файли</button>
+      <button class="btn" id="l-createboard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg> Створити дошку</button>
+      <button class="btn" id="l-addfiles"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> Файли</button>
     </div>
 
     <div class="config-box" style="margin-top: 12px;">
@@ -298,7 +298,7 @@ export function renderLesson(id){
       const icon = isBoard ? '🎨' : '📄';
 
       tr.innerHTML = `<td>${icon} ${window.esc(fileName)}</td>
-        <td><div style="display: flex; gap: 8px;"><button class="btn open">Відкрити</button> <button class="btn danger del">Видалити</button></div></td>`;
+        <td><div style="display: flex; gap: 8px;"><button class="btn open"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> Відкрити</button> <button class="btn danger del"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Видалити</button></div></td>`;
 
       window.$(".open",tr).onclick = ()=> {
         if (isBoard) {
@@ -350,8 +350,8 @@ export function renderLessonsList(){
         </select>
       </div>
       <div class="lesson-filters-buttons">
-        <button id="create-lesson-quick-btn" class="btn">Створити урок</button>
-        <button id="filter-btn" class="btn">Фільтрувати</button>
+        <button id="create-lesson-quick-btn" class="btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Створити урок</button>
+        <button id="filter-btn" class="btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg> Фільтрувати</button>
         <button id="filter-reset-btn" class="btn ghost">Скинути</button>
       </div>
     </div>
@@ -415,8 +415,8 @@ export function renderLessonsList(){
         <td style="text-align:center;">${hwIcon}</td>
         <td>
           <div style="display: flex; gap: 8px;">
-            <button class='btn btn-open-lesson'>Відкрити</button>
-            <button class='btn danger btn-del-lesson'>Видалити</button>
+            <button class='btn btn-open-lesson'><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> Відкрити</button>
+            <button class='btn danger btn-del-lesson'><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Видалити</button>
           </div>
         </td>`;
 
@@ -445,7 +445,7 @@ export function renderLessonsList(){
   window.$("#filter-btn").onclick = populateList;
 
   const resetBtn = window.$("#filter-reset-btn");
-  resetBtn.className = "btn";
+  resetBtn.className = "btn ghost";
   resetBtn.onclick = () => {
     classSelect.value = "";
     subjectSelect.value = "";

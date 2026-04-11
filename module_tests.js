@@ -1,13 +1,61 @@
 // === ФАЙЛ: module_tests.js ===
 
-// === 1. ГОЛОВНА СТОРІНКА (СПИСОК ТЕСТІВ) ===
+// === УТИЛІТИ ===
 
-export function renderTests(){
-  // Скидаємо стани (вони тепер керуються у вкладці редактора)
-  
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// === 1. ГОЛОВНА СТОРІНКА (СПИСОК ТЕСТІВ + РЕЗУЛЬТАТИ) ===
+
+let currentTestsView = 'tests';
+
+export function renderTests() {
+  currentTestsView = 'tests';
+  renderTestsPage();
+}
+
+export function renderTestResults() {
+  currentTestsView = 'results';
+  renderTestsPage();
+}
+
+function renderTestsPage() {
   window.areaEl.innerHTML = `
     <h2>Керування тестами</h2>
-    
+
+    <div class="tests-tab-toggle">
+      <button id="tests-tab-tests" class="${currentTestsView === 'tests' ? 'active' : ''}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Тести
+      </button>
+      <button id="tests-tab-results" class="${currentTestsView === 'results' ? 'active' : ''}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        Результати
+      </button>
+    </div>
+
+    <div id="tests-view-container"></div>
+  `;
+
+  window.$("#tests-tab-tests").onclick = () => { currentTestsView = 'tests'; renderTestsPage(); };
+  window.$("#tests-tab-results").onclick = () => { currentTestsView = 'results'; renderTestsPage(); };
+
+  const container = window.$("#tests-view-container");
+  if (currentTestsView === 'tests') {
+    renderTestsListView(container);
+  } else {
+    renderResultsView(container);
+  }
+}
+
+function renderTestsListView(container) {
+  container.innerHTML = `
     <div class="config-box">
       <div class="form-group" style="min-width: 200px;">
         <label for="t-new-class-select">Клас</label>
@@ -18,13 +66,9 @@ export function renderTests(){
         <select id="t-new-subject-select" class="input"></select>
       </div>
       <div class="form-buttons-group">
-
-        <button class="btn" id="t-create-new-btn" style="height: 38px;">Створити новий тест</button>
-        </div>
-    </div>
-    
-    <div class="output-box" id="t-run-output" style="display: none;">
+        <button class="btn" id="t-create-new-btn" style="height: 38px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Створити новий тест</button>
       </div>
+    </div>
 
     <div class="output-box" id="t-saved-output">
       <div class="output-box-header">
@@ -41,63 +85,201 @@ export function renderTests(){
             <th>Клас</th>
             <th>Предмет</th>
             <th>Питань</th>
-            <th style="width: 260px;">Дії</th>
+            <th style="width: 340px;">Дії</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
   `;
-  
-  // Заповнюємо фільтри для СТВОРЕННЯ
+
   populateTestFilters(window.$("#t-new-class-select"), window.$("#t-new-subject-select"), true);
-  
-  // Заповнюємо список тестів
   populateSavedTestsList();
-  
-  // Логіка кнопки "Створити"
+
   window.$("#t-create-new-btn").onclick = () => {
     const classSel = window.$("#t-new-class-select");
     const subjectSel = window.$("#t-new-subject-select");
-    
+
     const newTest = {
       id: "test_" + Date.now(),
       title: "Новий тест (без назви)",
       className: classSel.value || "",
       subjectName: subjectSel.value || "",
+      shuffle: false,
       questions: []
     };
-    
+
     window.state.tests.push(newTest);
-    
-    // Негайно зберігаємо, щоб тест мав ID
-    window.saveTests(); 
-    
-    // Відкриваємо редактор для цього нового тесту
+    window.saveTests();
     openTestEditorTab(newTest.id);
   };
 }
 
-/**
- * Заповнює список збережених тестів (Тепер це основна функція)
- */
+// === РЕЗУЛЬТАТИ ТЕСТІВ ===
+
+function renderResultsView(container) {
+  const attempts = window.state.attempts || [];
+
+  const totalAttempts = attempts.length;
+  let avgPercent = 0;
+  let bestPercent = 0;
+  let worstPercent = totalAttempts > 0 ? 100 : 0;
+
+  attempts.forEach(a => {
+    const pct = a.score.maxPoints > 0 ? Math.round((a.score.earnedPoints / a.score.maxPoints) * 100) : 0;
+    avgPercent += pct;
+    if (pct > bestPercent) bestPercent = pct;
+    if (pct < worstPercent) worstPercent = pct;
+  });
+  if (totalAttempts > 0) avgPercent = Math.round(avgPercent / totalAttempts);
+
+  container.innerHTML = `
+    <div class="test-results-stats">
+      <div class="test-stat-card">
+        <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(99,102,241,0.05));color:var(--accent);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
+        </div>
+        <div><div class="test-stat-value">${totalAttempts}</div><div class="test-stat-label">Спроб</div></div>
+      </div>
+      <div class="test-stat-card">
+        <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));color:#3b82f6;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        </div>
+        <div><div class="test-stat-value">${avgPercent}%</div><div class="test-stat-label">Середній бал</div></div>
+      </div>
+      <div class="test-stat-card">
+        <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(74,222,128,0.15),rgba(74,222,128,0.05));color:var(--grade-10);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01z"/></svg>
+        </div>
+        <div><div class="test-stat-value">${bestPercent}%</div><div class="test-stat-label">Найкращий</div></div>
+      </div>
+      <div class="test-stat-card">
+        <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(248,113,113,0.15),rgba(248,113,113,0.05));color:var(--grade-1);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>
+        </div>
+        <div><div class="test-stat-value">${worstPercent}%</div><div class="test-stat-label">Найнижчий</div></div>
+      </div>
+    </div>
+
+    <div class="config-box" style="gap: 12px;">
+      <div class="form-group" style="min-width: 180px;">
+        <label for="res-filter-test">Тест</label>
+        <select id="res-filter-test" class="input"><option value="">-- Всі --</option></select>
+      </div>
+      <div class="form-group" style="min-width: 180px;">
+        <label for="res-filter-student">Учень</label>
+        <input id="res-filter-student" class="input" placeholder="Прізвище...">
+      </div>
+    </div>
+
+    <div class="output-box">
+      <table class="table" id="res-table">
+        <thead>
+          <tr>
+            <th>Тест</th>
+            <th>Учень</th>
+            <th>Дата</th>
+            <th>Бали</th>
+            <th>%</th>
+            <th style="width: 160px;">Дії</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  `;
+
+  const testNames = [...new Set(attempts.map(a => a.testTitle))].sort();
+  const filterTestSel = window.$("#res-filter-test");
+  testNames.forEach(name => {
+    filterTestSel.innerHTML += `<option value="${window.esc(name)}">${window.esc(name)}</option>`;
+  });
+
+  const renderResultsTable = () => {
+    const tbody = window.$("#res-table tbody");
+    tbody.innerHTML = "";
+    const filterTest = filterTestSel.value;
+    const filterStudent = (window.$("#res-filter-student").value || "").toLowerCase();
+
+    let filtered = [...attempts];
+    if (filterTest) filtered = filtered.filter(a => a.testTitle === filterTest);
+    if (filterStudent) filtered = filtered.filter(a => (a.studentName || "").toLowerCase().includes(filterStudent));
+
+    filtered.sort((a, b) => {
+      const da = new Date(a.date.split(',')[0].split('.').reverse().join('-'));
+      const db = new Date(b.date.split(',')[0].split('.').reverse().join('-'));
+      return db - da;
+    });
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);">Результатів не знайдено.</td></tr>`;
+      return;
+    }
+
+    filtered.forEach((attempt, idx) => {
+      const pct = attempt.score.maxPoints > 0 ? Math.round((attempt.score.earnedPoints / attempt.score.maxPoints) * 100) : 0;
+      const pctColor = pct >= 75 ? 'var(--grade-10)' : pct >= 50 ? 'var(--grade-7)' : 'var(--grade-1)';
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${window.esc(attempt.testTitle)}</td>
+        <td>${window.esc(attempt.studentName)}</td>
+        <td style="font-size:13px;">${window.esc(attempt.date)}</td>
+        <td>${attempt.score.earnedPoints} / ${attempt.score.maxPoints}</td>
+        <td style="font-weight:700;color:${pctColor};">${pct}%</td>
+        <td>
+          <div class="form-buttons-group" style="gap:5px;">
+            <button class="btn ghost btn-review-attempt" style="padding:6px 10px;font-size:13px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              Переглянути
+            </button>
+            <button class="btn danger ghost btn-del-attempt" style="padding:6px 10px;font-size:13px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Видалити
+            </button>
+          </div>
+        </td>
+      `;
+
+      const originalIndex = attempts.indexOf(attempt);
+
+      window.$(".btn-review-attempt", tr).onclick = () => {
+        openTestReviewTab(attempt);
+      };
+
+      window.$(".btn-del-attempt", tr).onclick = async () => {
+        if (await window.showCustomConfirm("Видалення", `Видалити результат "${attempt.testTitle}" для ${attempt.studentName}?`, "Видалити", "Скасувати", true)) {
+          window.state.attempts.splice(originalIndex, 1);
+          window.saveAttempts();
+          renderTestsPage();
+        }
+      };
+
+      tbody.appendChild(tr);
+    });
+  };
+
+  filterTestSel.onchange = renderResultsTable;
+  window.$("#res-filter-student").oninput = window.debounce(renderResultsTable, 300);
+  renderResultsTable();
+}
+
+
+// === СПИСОК ТЕСТІВ ===
+
 function populateSavedTestsList() {
   const tbody = window.$("#t-saved-table tbody");
   const filterInput = window.$("#t-filter-input");
   if (!tbody) return;
 
-  const filterText = (filterInput?.value || "").toLowerCase();
-
   const render = () => {
+    const filterText = (filterInput?.value || "").toLowerCase();
     tbody.innerHTML = "";
     const sortedTests = [...window.state.tests].sort((a, b) => (b.title || "").localeCompare(a.title));
     let itemsRendered = 0;
-    
+
     sortedTests.forEach(test => {
-      if (filterText && !(test.title || "").toLowerCase().includes(filterText)) {
-        return; // Пропускаємо, якщо не відповідає фільтру
-      }
-      
+      if (filterText && !(test.title || "").toLowerCase().includes(filterText)) return;
+
       itemsRendered++;
       const tr = document.createElement("tr");
       tr.dataset.id = test.id;
@@ -108,56 +290,55 @@ function populateSavedTestsList() {
         <td>${(test.questions || []).length}</td>
         <td>
           <div class="form-buttons-group" style="gap: 5px;">
-            <button class="btn btn-start-test" style="padding: 6px 10px; font-size: 13px;">Запустити</button>
-            <button class="btn ghost btn-edit-test" style="padding: 6px 10px; font-size: 13px;">Редагувати</button>
-            <button class="btn danger btn-del-test" style="padding: 6px 10px; font-size: 13px;">Видалити</button>
+            <button class="btn btn-start-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Запустити</button>
+            <button class="btn ghost btn-edit-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Редагувати</button>
+            <button class="btn ghost btn-dup-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Дублювати</button>
+            <button class="btn danger btn-del-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Видалити</button>
           </div>
         </td>
       `;
-      
-      window.$(".btn-edit-test", tr).onclick = () => {
-        openTestEditorTab(test.id); 
-      };
-      
+
+      window.$(".btn-edit-test", tr).onclick = () => openTestEditorTab(test.id);
+
       window.$(".btn-start-test", tr).onclick = async () => {
-        const result = await window.showTestStartDialog(
-          test.title,
-          window.state.students,
-          test.className
-        );
-        
+        const result = await window.showTestStartDialog(test.title, window.state.students, test.className);
         if (!result.canceled) {
           window.renderRunTest(test.id, result.studentName, result.timeLimitInMinutes);
         }
+      };
+
+      window.$(".btn-dup-test", tr).onclick = () => {
+        const copy = JSON.parse(JSON.stringify(test));
+        copy.id = "test_" + Date.now();
+        copy.title = (test.title || "Тест") + " (копія)";
+        window.state.tests.push(copy);
+        window.saveTests();
+        render();
       };
 
       window.$(".btn-del-test", tr).onclick = async () => {
         if (await window.showCustomConfirm("Видалення", `Видалити тест "${test.title}"?`, "Видалити", "Скасувати", true)) {
           window.state.tests = window.state.tests.filter(t => t.id !== test.id);
           window.saveTests();
-          render(); 
+          render();
         }
       };
-      
+
       tbody.appendChild(tr);
     });
-    
+
     if (itemsRendered === 0) {
+      const filterText = (filterInput?.value || "").toLowerCase();
       tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--muted);">
         ${filterText ? 'Тестів за фільтром не знайдено.' : 'Збережених тестів немає.'}
       </td></tr>`;
     }
   };
-  
-  if (filterInput) {
-    filterInput.oninput = window.debounce(render, 300);
-  }
+
+  if (filterInput) filterInput.oninput = window.debounce(render, 300);
   render();
 }
 
-/**
- * Універсальний заповнювач фільтрів
- */
 function populateTestFilters(classSelect, subjectSelect, allowAll = false) {
   if (classSelect) {
     classSelect.innerHTML = allowAll ? "<option value=''>-- Всі класи --</option>" : "";
@@ -174,26 +355,22 @@ function populateTestFilters(classSelect, subjectSelect, allowAll = false) {
 }
 
 
-// === 2. НОВА ВКЛАДКА "РЕДАКТОР ТЕСТУ" ===
+// === 2. РЕДАКТОР ТЕСТУ ===
 
-/**
- * Відкриває вкладку редактора тесту (Нова функція)
- */
 export function openTestEditorTab(testId) {
   const testIndex = window.state.tests.findIndex(t => t.id === testId);
   if (testIndex === -1) {
     window.showCustomAlert("Помилка", "Тест не знайдено.");
     return;
   }
-  
-  // Створюємо ГЛИБОКУ копію, щоб редагувати "чернетку"
+
   let testDraft = JSON.parse(JSON.stringify(window.state.tests[testIndex]));
-  
+  if (testDraft.shuffle === undefined) testDraft.shuffle = false;
+
   const tabId = "test-edit-" + testId;
   const tabTitle = `Тест: ${testDraft.title.substring(0, 20)}...`;
-  
+
   window.openTab(tabId, tabTitle, () => {
-    // === РЕНДЕР HTML РЕДАКТОРА ===
     window.areaEl.innerHTML = `
       <div class="config-box tests-config-box">
         <div class="form-group" style="flex: 1; min-width: 300px;">
@@ -208,76 +385,70 @@ export function openTestEditorTab(testId) {
           <label for="t-subject-select">Предмет</label>
           <select id="t-subject-select" class="input" style="width: 200px;"></select>
         </div>
+        <label class="toggle-switch" style="align-self:flex-end;margin-bottom:6px;">
+          <input type="checkbox" id="t-shuffle" ${testDraft.shuffle ? 'checked' : ''}>
+          <span class="toggle-track"></span>
+          <span class="toggle-label">Перемішувати</span>
+        </label>
         <div class="form-buttons-group" id="t-form-buttons">
-          <button class="btn" id="t-addq">+ Питання</button>
-          <button class="btn" id="t-save">Зберегти і Закрити</button>
+          <button class="btn" id="t-addq"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Питання</button>
+          <button class="btn" id="t-save"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Зберегти і Закрити</button>
         </div>
       </div>
-      
-      <div class="test-creator-box" id="t-questions-box" 
+
+      <div class="test-creator-box" id="t-questions-box"
            style="max-height: none; height: calc(100% - 120px); background: var(--bg);">
-        </div>
+      </div>
     `;
 
-    // === ЛОГІКА РЕДАКТОРА ===
-    
     const titleInput = window.$("#t-title");
     const classSel = window.$("#t-class-select");
     const subjectSel = window.$("#t-subject-select");
+    const shuffleCheck = window.$("#t-shuffle");
     const questionsBox = window.$("#t-questions-box");
 
-    // 1. Заповнюємо фільтри та дані
     populateTestFilters(classSel, subjectSel, true);
-    
     classSel.value = testDraft.className || "";
     subjectSel.value = testDraft.subjectName || "";
 
-    // 2. Відмальовуємо питання
     renderTestCreatorQuestions(testDraft, questionsBox);
-    
-    // 3. Біндимо логіку кнопок
-    
-    // Збереження змін у чернетці при вводі
+
     titleInput.oninput = () => {
-        let val = titleInput.value.trim();
-        testDraft.title = val === "" ? "Новий тест (без назви)" : val;
+      let val = titleInput.value.trim();
+      testDraft.title = val === "" ? "Новий тест (без назви)" : val;
     };
     classSel.onchange = () => testDraft.className = classSel.value;
     subjectSel.onchange = () => testDraft.subjectName = subjectSel.value;
+    shuffleCheck.onchange = () => testDraft.shuffle = shuffleCheck.checked;
 
-    // Додати питання
     window.$("#t-addq").onclick = () => {
-      // === ОНОВЛЕНО: Тексти порожні, щоб працювали placeholders ===
       testDraft.questions.push({
         type: 'radio',
-        text: '', 
+        text: '',
         image: null,
         options: [
-          { text: '', correct: true },  // Порожній текст
-          { text: '', correct: false }  // Порожній текст
+          { text: '', correct: true },
+          { text: '', correct: false }
         ],
         points: 1
       });
       renderTestCreatorQuestions(testDraft, questionsBox);
-      // Прокручуємо до нового питання
       questionsBox.scrollTop = questionsBox.scrollHeight;
     };
-    
-    // Зберегти і закрити
+
     window.$("#t-save").onclick = async () => {
-      // Знаходимо оригінальний тест і замінюємо його
       const originalTestIndex = window.state.tests.findIndex(t => t.id === testId);
       if (originalTestIndex > -1) {
         window.state.tests[originalTestIndex] = testDraft;
       } else {
         window.state.tests.push(testDraft);
       }
-      
+
       await window.saveTests();
       await window.showCustomAlert("Збережено", `Тест "${testDraft.title}" оновлено.`);
-      
+
       window.closeTab(tabId);
-      
+
       if (window.active === 'tests') {
         window.renderTests();
       }
@@ -285,37 +456,31 @@ export function openTestEditorTab(testId) {
   });
 }
 
-/**
- * Рендерить список питань у редакторі (оновлено)
- * @param {object} testDraft - Об'єкт "чернетки" тесту
- * @param {HTMLElement} questionsBox - Контейнер для питань
- */
 function renderTestCreatorQuestions(testDraft, questionsBox) {
-  questionsBox.innerHTML = ""; 
-  
+  questionsBox.innerHTML = "";
+
   if (testDraft.questions.length === 0) {
     questionsBox.innerHTML = `<p style="text-align: center; color: var(--muted); padding-top: 20px;">Натисніть "+ Питання", щоб додати перше питання.</p>`;
     return;
   }
-  
+
   testDraft.questions.forEach((q, qi) => {
     const qBlock = document.createElement("div");
     qBlock.className = "question-block";
     qBlock.style.background = "var(--bg-light)";
-    
-    // === ХЕДЕР ПИТАННЯ ===
+
     let optionsHTML = "";
     const types = [
       { val: 'radio', label: 'Один варіант' },
       { val: 'check', label: 'Декілька варіантів' },
-      { val: 'text', label: 'Текстова відповідь' }
+      { val: 'text', label: 'Текстова відповідь' },
+      { val: 'matching', label: 'Відповідність' }
     ];
-    
+
     types.forEach(t => {
       optionsHTML += `<option value="${t.val}" ${q.type === t.val ? 'selected' : ''}>${t.label}</option>`;
     });
 
-    // === ЗОБРАЖЕННЯ ===
     const imagePreviewHTML = q.image ? `
       <div style="position: relative; margin-top: 8px;">
         <img src="${q.image}" style="max-width: 200px; max-height: 100px; border-radius: 4px; border: 1px solid var(--border-color); cursor: zoom-in;">
@@ -323,49 +488,55 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       </div>
     ` : '';
 
+    const showOptions = q.type === 'radio' || q.type === 'check';
+    const showMatching = q.type === 'matching';
+
     qBlock.innerHTML = `
       <div class="question-header">
         <h4 style="margin: 0; min-width: 90px;">Питання #${qi + 1}</h4>
-        
-        <textarea class="input q-text-input" placeholder="Введіть текст питання сюди..." 
+
+        <textarea class="input q-text-input" placeholder="Введіть текст питання сюди..."
                   style="width: 250px; min-width: 250px; height: 36px;">${window.esc(q.text || "")}</textarea>
-        
+
         <div class="form-group" style="max-width: 180px;">
           <label>Тип питання</label>
           <select class="input q-type-select">${optionsHTML}</select>
         </div>
-        
+
         <div class="form-group" style="width: 70px;">
           <label for="q-points-${qi}">Бали</label>
           <input type="number" id="q-points-${qi}" min="1" class="input points-input q-points-input" value="${q.points || 1}" style="padding: 8px 4px; text-align: center;">
         </div>
-        
+
         <button class="btn ghost" data-action="add-image" title="Додати зображення">🖼️</button>
         <button class="btn danger" data-action="delete-q" title="Видалити питання">Видалити</button>
       </div>
-      
+
       ${imagePreviewHTML}
-      
-      <div class="options-list" style="display: ${q.type === 'text' ? 'none' : 'block'};">
-        </div>
-      <button class="btn ghost" data-action="add-option" style="margin-left: 28px; margin-top: 8px; display: ${q.type === 'text' ? 'none' : 'block'};">
+
+      <div class="options-list" style="display: ${showOptions ? 'block' : 'none'};"></div>
+      <button class="btn ghost" data-action="add-option" style="margin-left: 28px; margin-top: 8px; display: ${showOptions ? 'block' : 'none'};">
         + Додати варіант
       </button>
+
+      <div class="matching-editor-area" style="display: ${showMatching ? 'block' : 'none'}; margin-top: 8px;"></div>
+      <button class="btn ghost" data-action="add-pair" style="margin-left: 28px; margin-top: 8px; display: ${showMatching ? 'block' : 'none'};">
+        + Додати пару
+      </button>
     `;
-    
-    // === РЕНДЕР ВАРІАНТІВ ВІДПОВІДЕЙ ===
+
+    // Render radio/check options
     const optionsList = window.$(".options-list", qBlock);
-    if (q.type === 'radio' || q.type === 'check') {
+    if (showOptions) {
       (q.options || []).forEach((opt, opti) => {
         const optRow = document.createElement("div");
         optRow.className = "option-row";
         optRow.style.display = "flex";
         optRow.style.gap = "6px";
         optRow.style.alignItems = "center";
-        
+
         const inputType = q.type === 'radio' ? 'radio' : 'checkbox';
-        
-        // ДОДАНО PLACEHOLDER ДЛЯ ВАРІАНТІВ
+
         optRow.innerHTML = `
           <label style="display: flex; flex: 1; align-items: center; gap: 4px;">
             <input type="${inputType}" name="q-correct-${qi}" ${opt.correct ? 'checked' : ''} data-opt-index="${opti}">
@@ -373,77 +544,101 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
           </label>
           <button class="btn danger ghost" data-action="delete-opt" data-opt-index="${opti}" style="min-width: 32px; padding: 4px 8px;">✕</button>
         `;
-        
+
         window.$(".opt-text-input", optRow).oninput = (e) => {
           testDraft.questions[qi].options[opti].text = e.target.value;
         };
-        window.$(`input[type="${inputType}"]`, optRow).onchange = (e) => {
+        window.$(`input[type="${inputType}"]`, optRow).onchange = () => {
           if (q.type === 'radio') {
             testDraft.questions[qi].options.forEach((o, i) => o.correct = (i === opti));
-          } else { 
-            testDraft.questions[qi].options[opti].correct = e.target.checked;
+          } else {
+            testDraft.questions[qi].options[opti].correct = !testDraft.questions[qi].options[opti].correct;
           }
         };
-        
+
         optionsList.appendChild(optRow);
       });
     }
 
-    // === ЛОГІКА КНОПОК ПИТАННЯ ===
+    // Render matching pairs
+    if (showMatching) {
+      const matchArea = window.$(".matching-editor-area", qBlock);
+      if (!q.pairs) q.pairs = [];
+      q.pairs.forEach((pair, pi) => {
+        const pairRow = document.createElement("div");
+        pairRow.className = "matching-pair-editor";
+        pairRow.innerHTML = `
+          <input type="text" class="input pair-left" placeholder="Ліва частина..." value="${window.esc(pair.left || "")}">
+          <span style="color:var(--muted);font-size:18px;">↔</span>
+          <input type="text" class="input pair-right" placeholder="Права частина..." value="${window.esc(pair.right || "")}">
+          <button class="btn danger ghost" data-action="delete-pair" data-pair-index="${pi}" style="min-width:32px;padding:4px 8px;">✕</button>
+        `;
+        window.$(".pair-left", pairRow).oninput = (e) => { testDraft.questions[qi].pairs[pi].left = e.target.value; };
+        window.$(".pair-right", pairRow).oninput = (e) => { testDraft.questions[qi].pairs[pi].right = e.target.value; };
+        window.$('[data-action="delete-pair"]', pairRow).onclick = () => {
+          testDraft.questions[qi].pairs.splice(pi, 1);
+          renderTestCreatorQuestions(testDraft, questionsBox);
+        };
+        matchArea.appendChild(pairRow);
+      });
+    }
+
+    // Question-level event handlers
     window.$(".q-type-select", qBlock).onchange = (e) => {
       const newType = e.target.value;
       testDraft.questions[qi].type = newType;
-      if (newType === 'radio' && testDraft.questions[qi].options.length > 0) {
-        testDraft.questions[qi].options.forEach((o, i) => o.correct = (i === 0));
-      } else {
-        testDraft.questions[qi].options.forEach(o => o.correct = false);
+      if (newType === 'matching' && !testDraft.questions[qi].pairs) {
+        testDraft.questions[qi].pairs = [{ left: '', right: '' }, { left: '', right: '' }];
       }
-      renderTestCreatorQuestions(testDraft, questionsBox); 
+      if (newType === 'radio' && (testDraft.questions[qi].options || []).length > 0) {
+        testDraft.questions[qi].options.forEach((o, i) => o.correct = (i === 0));
+      } else if (newType === 'check') {
+        (testDraft.questions[qi].options || []).forEach(o => o.correct = false);
+      }
+      renderTestCreatorQuestions(testDraft, questionsBox);
     };
-    
-    window.$(".q-text-input", qBlock).oninput = (e) => {
-      testDraft.questions[qi].text = e.target.value;
-    };
-    
-    window.$(".q-points-input", qBlock).oninput = (e) => {
-      testDraft.questions[qi].points = parseInt(e.target.value, 10) || 1;
-    };
+
+    window.$(".q-text-input", qBlock).oninput = (e) => { testDraft.questions[qi].text = e.target.value; };
+    window.$(".q-points-input", qBlock).oninput = (e) => { testDraft.questions[qi].points = parseInt(e.target.value, 10) || 1; };
 
     window.$('[data-action="add-image"]', qBlock).onclick = async () => {
       const dataUrl = await window.tj.readFileAsDataUrl();
-      if (dataUrl && dataUrl.error) {
-        window.showCustomAlert("Помилка", dataUrl.error);
-        return;
-      }
+      if (dataUrl && dataUrl.error) { window.showCustomAlert("Помилка", dataUrl.error); return; }
       if (dataUrl) {
         testDraft.questions[qi].image = dataUrl;
         renderTestCreatorQuestions(testDraft, questionsBox);
       }
     };
-    
+
     const delImgBtn = window.$('[data-action="delete-image"]', qBlock);
     if (delImgBtn) {
-      delImgBtn.onclick = () => {
-        testDraft.questions[qi].image = null;
-        renderTestCreatorQuestions(testDraft, questionsBox);
-      };
-      window.$('img', qBlock).onclick = () => {
-        window.previewImage(q.image);
-      };
+      delImgBtn.onclick = () => { testDraft.questions[qi].image = null; renderTestCreatorQuestions(testDraft, questionsBox); };
+      window.$('img', qBlock).onclick = () => { window.previewImage(q.image); };
     }
 
     window.$('[data-action="delete-q"]', qBlock).onclick = () => {
       testDraft.questions.splice(qi, 1);
-      renderTestCreatorQuestions(testDraft, questionsBox); 
-    };
-    
-    window.$('[data-action="add-option"]', qBlock).onclick = () => {
-      if (!testDraft.questions[qi].options) testDraft.questions[qi].options = [];
-      // ДОДАНО ПОРОЖНІЙ ТЕКСТ ДЛЯ НОВОГО ВАРІАНТУ
-      testDraft.questions[qi].options.push({ text: '', correct: false });
       renderTestCreatorQuestions(testDraft, questionsBox);
     };
-    
+
+    const addOptBtn = window.$('[data-action="add-option"]', qBlock);
+    if (addOptBtn) {
+      addOptBtn.onclick = () => {
+        if (!testDraft.questions[qi].options) testDraft.questions[qi].options = [];
+        testDraft.questions[qi].options.push({ text: '', correct: false });
+        renderTestCreatorQuestions(testDraft, questionsBox);
+      };
+    }
+
+    const addPairBtn = window.$('[data-action="add-pair"]', qBlock);
+    if (addPairBtn) {
+      addPairBtn.onclick = () => {
+        if (!testDraft.questions[qi].pairs) testDraft.questions[qi].pairs = [];
+        testDraft.questions[qi].pairs.push({ left: '', right: '' });
+        renderTestCreatorQuestions(testDraft, questionsBox);
+      };
+    }
+
     qBlock.onclick = (e) => {
       if (e.target.dataset.action === 'delete-opt') {
         const optIndex = parseInt(e.target.dataset.optIndex, 10);
@@ -457,52 +652,66 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
 }
 
 
-// === 3. ЛОГІКА ЗАПУСКУ ТЕСТУ (ОНОВЛЕНИЙ ДИЗАЙН + ФІКС ТАЙМЕРА І ПАРОЛЮ) ===
+// === 3. ЗАПУСК ТЕСТУ ===
 
 export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
-  const test = window.state.tests.find(t => t.id === testId);
-  if (!test) return;
+  const originalTest = window.state.tests.find(t => t.id === testId);
+  if (!originalTest) return;
+
+  const test = JSON.parse(JSON.stringify(originalTest));
+
+  let questionMap = test.questions.map((_, i) => i);
+  let optionMaps = {};
+
+  if (test.shuffle) {
+    questionMap = shuffleArray(questionMap);
+    const shuffledQuestions = questionMap.map(i => {
+      const q = JSON.parse(JSON.stringify(test.questions[i]));
+      if (q.type === 'radio' || q.type === 'check') {
+        const optMap = shuffleArray(q.options.map((_, oi) => oi));
+        optionMaps[i] = optMap;
+        q.options = optMap.map(oi => test.questions[i].options[oi]);
+      }
+      if (q.type === 'matching') {
+        // pairs stay, right side is always shuffled during rendering
+      }
+      return q;
+    });
+    test.questions = shuffledQuestions;
+  }
 
   const tabId = `test-run-${testId}-${studentName.replace(/ /g, '_')}`;
   const tabTitle = `Тест: ${studentName.split(' ')[0]}...`;
-  
-  const timerDuration = (timeLimitInMinutes || 0) * 60; // в секундах
 
-  // === ВИПРАВЛЕННЯ: Збереження стану таймера ===
+  const timerDuration = (timeLimitInMinutes || 0) * 60;
+
   let timerState = window.activeTimers[tabId];
   if (!timerState && timerDuration > 0) {
-    // Створюємо стан, лише якщо його немає (перший запуск)
-    timerState = {
-      intervalId: null,
-      timeLeft: timerDuration,
-      timerDuration: timerDuration
-    };
+    timerState = { intervalId: null, timeLeft: timerDuration, timerDuration: timerDuration };
     window.activeTimers[tabId] = timerState;
   }
-  // === КІНЕЦЬ ВИПРАВЛЕННЯ ===
 
   window.openTab(tabId, tabTitle, () => {
-    
-    // === ВИПРАВЛЕННЯ: Зупиняємо старий інтервал при пере-рендері ===
     let timerState = window.activeTimers[tabId];
     if (timerState && timerState.intervalId) {
       clearInterval(timerState.intervalId);
       timerState.intervalId = null;
     }
-    // === КІНЕЦЬ ВИПРАВЛЕННЯ ===
 
-    // Готуємо HTML
+    const totalQ = test.questions.length;
+
+    // Build questions HTML
     let questionsHTML = "";
     test.questions.forEach((q, qi) => {
-      questionsHTML += `<div class="question-block" style="background: var(--bg-light); margin-bottom: 16px; padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">`;
+      questionsHTML += `<div class="question-block" id="run-q-${qi}" style="background: var(--bg-light); margin-bottom: 16px; padding: 16px; border-radius: 8px; border: 1px solid var(--border-color);">`;
       questionsHTML += `<div class="question-text" style="font-size: 1.1em; font-weight: 600; margin-bottom: 12px; color: var(--text-primary);">`;
       questionsHTML += `<b>Питання ${qi + 1}:</b> ${window.esc(q.text)}`;
       questionsHTML += `</div>`;
-      
+
       if (q.image) {
         questionsHTML += `<img src="${q.image}" data-preview-image="${qi}" style="max-width: 400px; max-height: 300px; border-radius: 4px; margin-bottom: 12px; cursor: zoom-in; border: 1px solid var(--border-color);">`;
       }
-      
+
       questionsHTML += `<div class="options-list" style="display: flex; flex-direction: column; gap: 8px;">`;
       if (q.type === 'radio' || q.type === 'check') {
         q.options.forEach((opt, opti) => {
@@ -516,51 +725,139 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         });
       } else if (q.type === 'text') {
         questionsHTML += `<textarea class="input" data-q-index="${qi}" placeholder="Введіть вашу відповідь..." style="min-height: 100px;"></textarea>`;
+      } else if (q.type === 'matching') {
+        const pairs = q.pairs || [];
+        const rightShuffled = shuffleArray(pairs.map(p => p.right));
+        questionsHTML += `<div class="matching-grid">`;
+        pairs.forEach((pair, pi) => {
+          questionsHTML += `
+            <div class="matching-pair">
+              <div class="matching-left">${window.esc(pair.left)}</div>
+              <span class="matching-arrow">→</span>
+              <div class="matching-right">
+                <select class="input" data-q-index="${qi}" data-pair-index="${pi}">
+                  <option value="">-- Оберіть --</option>
+                  ${rightShuffled.map(r => `<option value="${window.esc(r)}">${window.esc(r)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+          `;
+        });
+        questionsHTML += `</div>`;
       }
       questionsHTML += `</div></div>`;
     });
 
-    // Рендеримо сторінку
+    // Build question navigation
+    let navHTML = "";
+    for (let i = 0; i < totalQ; i++) {
+      navHTML += `<button class="question-nav-item" data-nav-q="${i}">${i + 1}</button>`;
+    }
+
     window.areaEl.innerHTML = `
       <style>
         .test-run-layout { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
         .test-run-content { flex: 1; overflow-y: auto; padding: 16px; }
         .test-run-header, .test-run-footer { flex-shrink: 0; background: var(--panel); padding: 12px 16px; }
         .test-run-header { border-bottom: 1px solid var(--border-color); }
-        .test-run-footer { border-top: 1px solid var(--border-color); text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+        .test-run-footer { border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
         .test-option-label { display: flex; align-items: center; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: background-color 0.1s, border-color 0.1s; }
         .test-option-label:hover { background: var(--bg); border-color: var(--accent); }
         .test-option-label input { margin-right: 12px; transform: scale(1.2); accent-color: var(--accent); }
         .test-option-label input:checked + span { color: var(--accent); font-weight: 600; }
       </style>
-    
+
       <div class="test-run-layout">
-        
         <div class="test-run-header">
           <h3>Тест: ${window.esc(test.title)}</h3>
           <p style="margin: 0; color: var(--muted);"><b>Учень:</b> ${window.esc(studentName)}</p>
         </div>
-        
+
         ${timerDuration > 0 ? `
           <div class="test-timer-bar">
             <div class="test-timer-progress g-100" id="test-timer-progress"></div>
             <div class="test-timer-text" id="test-timer-text">Завантаження...</div>
           </div>
         ` : ''}
-        
+
+        <div class="question-nav" id="question-nav-bar">${navHTML}</div>
+
         <div class="test-run-content" id="test-questions-area">
           ${questionsHTML}
         </div>
-        
+
         <div class="test-run-footer" id="test-run-footer-area">
+          <div class="test-progress-text" id="test-progress-text">Відповіли на <strong>0</strong> з ${totalQ} питань</div>
           <button class="btn" id="test-finish-btn" style="min-width: 200px; height: 40px;">Завершити тест</button>
         </div>
-        
       </div>
     `;
 
-    // Event delegation for image previews (avoids inline onclick XSS)
-    window.$("#test-questions-area").addEventListener("click", (e) => {
+    const questionsArea = window.$("#test-questions-area");
+    const footerArea = window.$("#test-run-footer-area");
+    const progressText = window.$("#test-progress-text");
+    const navBar = window.$("#question-nav-bar");
+
+    // Progress & Nav update
+    const updateProgressAndNav = () => {
+      let answered = 0;
+      test.questions.forEach((q, qi) => {
+        const navItem = window.$(`.question-nav-item[data-nav-q="${qi}"]`, navBar);
+        let hasAnswer = false;
+
+        if (q.type === 'radio') {
+          hasAnswer = !!window.$(`input[name="q-${qi}"]:checked`, questionsArea);
+        } else if (q.type === 'check') {
+          hasAnswer = window.$$(`input[name="q-${qi}"]:checked`, questionsArea).length > 0;
+        } else if (q.type === 'text') {
+          const ta = window.$(`textarea[data-q-index="${qi}"]`, questionsArea);
+          hasAnswer = ta && ta.value.trim().length > 0;
+        } else if (q.type === 'matching') {
+          const selects = window.$$(`select[data-q-index="${qi}"]`, questionsArea);
+          hasAnswer = selects.length > 0 && selects.every(s => s.value !== '');
+        }
+
+        if (hasAnswer) {
+          answered++;
+          if (navItem) navItem.classList.add('answered');
+        } else {
+          if (navItem) navItem.classList.remove('answered');
+        }
+      });
+      if (progressText) progressText.innerHTML = `Відповіли на <strong>${answered}</strong> з ${totalQ} питань`;
+    };
+
+    // Event delegation for answers
+    questionsArea.addEventListener("change", updateProgressAndNav);
+    questionsArea.addEventListener("input", updateProgressAndNav);
+    updateProgressAndNav();
+
+    // Navigation clicks
+    navBar.addEventListener("click", (e) => {
+      const btn = e.target.closest(".question-nav-item");
+      if (!btn) return;
+      const qi = parseInt(btn.dataset.navQ, 10);
+      const target = window.$(`#run-q-${qi}`, questionsArea);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    // Scroll observer for current question highlight
+    const observeScroll = () => {
+      const blocks = window.$$(".question-block", questionsArea);
+      let currentIdx = 0;
+      const scrollTop = questionsArea.scrollTop;
+      blocks.forEach((block, idx) => {
+        if (block.offsetTop - questionsArea.offsetTop <= scrollTop + 60) currentIdx = idx;
+      });
+      window.$$(".question-nav-item", navBar).forEach((item, idx) => {
+        item.classList.toggle('current', idx === currentIdx);
+      });
+    };
+    questionsArea.addEventListener("scroll", observeScroll);
+    observeScroll();
+
+    // Image preview delegation
+    questionsArea.addEventListener("click", (e) => {
       const img = e.target.closest("[data-preview-image]");
       if (img) {
         const qi = parseInt(img.dataset.previewImage, 10);
@@ -568,220 +865,292 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
       }
     });
 
-    // Логіка таймера
+    // Timer logic
+    let updateTimer = null;
     if (timerDuration > 0) {
       const timerTextEl = window.$("#test-timer-text");
       const timerProgressEl = window.$("#test-timer-progress");
-      const questionsArea = window.$("#test-questions-area");
-      const footerArea = window.$("#test-run-footer-area");
 
-      let localIntervalId = null; // Локальна змінна для інтервалу
+      let localIntervalId = null;
 
-      // === ВИПРАВЛЕНО: Функція таймера з ВІДНОВЛЕНОЮ логікою паролю ===
-      const updateTimer = async () => {
+      updateTimer = async () => {
         let currentState = window.activeTimers[tabId];
-        
-        if (!currentState) {
-            clearInterval(localIntervalId); 
-            return;
-        }
+        if (!currentState) { clearInterval(localIntervalId); return; }
 
         currentState.timeLeft--;
-        
-        // === ВІДНОВЛЕНА ЛОГІКА ЗІ СТАРОГО ФАЙЛУ ===
+
         if (currentState.timeLeft < 0) {
           clearInterval(localIntervalId);
           currentState.intervalId = null;
-          
+
           timerTextEl.textContent = "Час вийшов!";
           timerProgressEl.style.width = `0%`;
           timerProgressEl.className = "test-timer-progress g-25";
-          
-          // 1. Блокуємо всі поля вводу
-          window.$$("input, textarea", questionsArea).forEach(inp => inp.disabled = true);
-          
-          // 2. Додаємо кнопку "Дати більше часу"
+
+          window.$$("input, textarea, select", questionsArea).forEach(inp => inp.disabled = true);
+
           if (footerArea && !window.$("#add-time-btn")) {
             const addTimeBtn = document.createElement("button");
-            addTimeBtn.className = "btn ghost"; // 'ghost' або інший стиль
+            addTimeBtn.className = "btn ghost";
             addTimeBtn.id = "add-time-btn";
             addTimeBtn.textContent = "Дати більше часу";
-            
-            // Вставляємо її перед кнопкою "Завершити"
             footerArea.prepend(addTimeBtn);
 
-            // 3. Логіка кнопки
             addTimeBtn.onclick = async () => {
-              
-              // === ОСЬ ГОЛОВНЕ ВИПРАВЛЕННЯ ===
               const password = window.state.settings?.teacherPassword;
-              // === КІНЕЦЬ ГОЛОВНОГО ВИПРАВЛЕННЯ ===
-
               if (!password) {
                 await window.showCustomAlert("Помилка", "Пароль вчителя не встановлено в Налаштуваннях.");
                 return;
               }
-              
               const success = await window.showPasswordPrompt("Підтвердження", password);
-              
               if (success) {
-                // 4. Розблокування
-                window.$$("input, textarea", questionsArea).forEach(inp => inp.disabled = false);
-                
+                window.$$("input, textarea, select", questionsArea).forEach(inp => inp.disabled = false);
                 const timerBar = window.$(".test-timer-bar");
                 if (timerBar) timerBar.remove();
-                
                 addTimeBtn.remove();
-                
-                delete window.activeTimers[tabId]; 
-                
+                delete window.activeTimers[tabId];
                 await window.showCustomAlert("Тест розблоковано", "Тест розблоковано. Таймер вимкнено.");
               }
             };
           }
-          // Кнопка "Завершити" залишається активною
-          return; 
+          return;
         }
-        // === КІНЕЦЬ ВІДНОВЛЕНОЇ ЛОГІКИ ===
 
-        // Оновлюємо UI (якщо час ще є)
         const minutes = Math.floor(currentState.timeLeft / 60);
         const seconds = currentState.timeLeft % 60;
         timerTextEl.textContent = `Залишилось часу: ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        
+
         const percent = (currentState.timeLeft / currentState.timerDuration) * 100;
         timerProgressEl.style.width = `${percent}%`;
         timerProgressEl.className = "test-timer-progress " + (percent > 75 ? 'g-100' : percent > 50 ? 'g-75' : percent > 25 ? 'g-50' : 'g-25');
       };
-      
-      // === ВИПРАВЛЕННЯ: Запуск/відновлення таймера ===
-      
-      // 1. Малюємо поточний стан (на випадок перемикання вкладок)
+
       const minutes = Math.floor(timerState.timeLeft / 60);
       const seconds = timerState.timeLeft % 60;
       timerTextEl.textContent = `Залишилось часу: ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
       const percent = (timerState.timeLeft / timerState.timerDuration) * 100;
       timerProgressEl.style.width = `${percent}%`;
       timerProgressEl.className = "test-timer-progress " + (percent > 75 ? 'g-100' : percent > 50 ? 'g-75' : percent > 25 ? 'g-50' : 'g-25');
-      
-      // 2. Запускаємо *новий* інтервал, якщо час ще є
+
       if (timerState.timeLeft > 0) {
         localIntervalId = setInterval(updateTimer, 1000);
-        timerState.intervalId = localIntervalId; // Зберігаємо ID нового інтервалу
+        timerState.intervalId = localIntervalId;
       } else {
-        // Час вже вийшов (поки ми були на іншій вкладці або повернулись)
-        // Ми не можемо викликати updateTimer() з `await` тут,
-        // тому просто викликаємо її, щоб вона відпрацювала синхронну частину
-        // (блокування полів і показ кнопки).
         updateTimer();
       }
-      // === КІНЕЦЬ ВИПРАВЛЕННЯ ===
-      
     } else {
-      window.$(".test-run-header").style.marginBottom = "0";
+      const header = window.$(".test-run-header");
+      if (header) header.style.marginBottom = "0";
     }
 
-    // Логіка збору відповідей
+    // Finish button
     window.$("#test-finish-btn").onclick = async () => {
       let timerState = window.activeTimers[tabId];
       if (timerState && timerState.intervalId) {
         clearInterval(timerState.intervalId);
         timerState.intervalId = null;
       }
-      
+
       const confirmed = await window.showCustomConfirm("Завершення", "Ви впевнені, що хочете завершити тест?", "Завершити", "Ні", false);
       if (!confirmed) {
-        // Користувач передумав. Запускаємо таймер знову.
-        if (timerState && timerState.timeLeft > 0) {
-           // 'updateTimer' визначено у цій області видимості (openTab)
-           const newIntervalId = setInterval(updateTimer, 1000);
-           timerState.intervalId = newIntervalId;
+        if (timerState && timerState.timeLeft > 0 && updateTimer) {
+          const newIntervalId = setInterval(updateTimer, 1000);
+          timerState.intervalId = newIntervalId;
         }
         return;
       }
 
-      // Збираємо відповіді
+      // Collect answers
       const answers = {};
       test.questions.forEach((q, qi) => {
         if (q.type === 'radio') {
-          const checked = window.$(`input[name="q-${qi}"]:checked`);
+          const checked = window.$(`input[name="q-${qi}"]:checked`, questionsArea);
           answers[qi] = checked ? parseInt(checked.value, 10) : null;
-        } 
-        else if (q.type === 'check') {
+        } else if (q.type === 'check') {
           answers[qi] = [];
-          window.$$(`input[name="q-${qi}"]:checked`).forEach(chk => {
+          window.$$(`input[name="q-${qi}"]:checked`, questionsArea).forEach(chk => {
             answers[qi].push(parseInt(chk.value, 10));
           });
-        } 
-        else if (q.type === 'text') {
-          const textarea = window.$(`textarea[data-q-index="${qi}"]`);
+        } else if (q.type === 'text') {
+          const textarea = window.$(`textarea[data-q-index="${qi}"]`, questionsArea);
           answers[qi] = textarea ? textarea.value : "";
+        } else if (q.type === 'matching') {
+          const selects = window.$$(`select[data-q-index="${qi}"]`, questionsArea);
+          answers[qi] = selects.map(s => s.value);
         }
       });
-      
-      processTestResults(test, studentName, answers, tabId);
+
+      processTestResults(test, originalTest, studentName, answers, tabId, questionMap, optionMaps);
     };
   });
 }
 
-/**
- * Обробляє результати тесту (без змін)
- */
-async function processTestResults(test, studentName, answers, tabId) {
-  const score = window.calcScore(test, answers);
-  
-  // === ВИПРАВЛЕНО: 'student' -> 'studentName' у об'єкті 'attempts' ===
-  window.state.attempts.push({ 
-    testId: test.id, 
-    testTitle: test.title, 
-    studentName: studentName, // <--- ВИПРАВЛЕНО (було 'student:')
-    date: new Date().toLocaleString("uk-UA"), 
-    score, 
-    answers 
-  });
-  window.saveAttempts(); 
-  
-  const message = `Результат для \"${window.esc(studentName)}\":\n\n` +
-                  `Правильних відповідей: ${score.correctCount} / ${score.totalQuestions}\n` +
-                  `Набрано балів: ${score.earnedPoints} / ${score.maxPoints}`;
-  
-  await window.showCustomAlert("Тест завершено", message); 
-  
-  // Видаляємо таймер перед закриттям вкладки
+
+// === 4. ОБРОБКА РЕЗУЛЬТАТІВ ===
+
+async function processTestResults(runTest, originalTest, studentName, answers, tabId, questionMap, optionMaps) {
+  const score = calcScore(runTest, answers);
+
+  const attempt = {
+    testId: originalTest.id,
+    testTitle: originalTest.title,
+    studentName: studentName,
+    date: new Date().toLocaleString("uk-UA"),
+    score,
+    answers,
+    questions: runTest.questions,
+    questionMap,
+    optionMaps
+  };
+
+  window.state.attempts.push(attempt);
+  window.saveAttempts();
+
   if (window.activeTimers[tabId]) {
     clearInterval(window.activeTimers[tabId].intervalId);
     delete window.activeTimers[tabId];
   }
-  
+
   window.closeTab(tabId);
+  openTestReviewTab(attempt);
 }
 
-/**
- * Рахує бали (без змін)
- */
-export function calcScore(test, answers){
+
+// === 5. ПЕРЕГЛЯД РЕЗУЛЬТАТІВ ===
+
+function openTestReviewTab(attempt) {
+  const tabId = `test-review-${attempt.testId}-${Date.now()}`;
+  const tabTitle = `Результат: ${(attempt.studentName || '').split(' ')[0]}`;
+
+  const questions = attempt.questions || [];
+  const answers = attempt.answers || {};
+  const score = attempt.score || { correctCount: 0, totalQuestions: 0, earnedPoints: 0, maxPoints: 0 };
+  const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
+  const circleClass = pct >= 75 ? 'good' : pct >= 50 ? 'ok' : 'bad';
+
+  window.openTab(tabId, tabTitle, () => {
+    let questionsHTML = "";
+
+    questions.forEach((q, qi) => {
+      const pts = q.points || 1;
+      let isCorrect = false;
+      let detailHTML = "";
+
+      if (q.type === 'radio' || q.type === 'check') {
+        const right = new Set((q.options || []).map((o, i) => o.correct ? i : null).filter(x => x !== null));
+        const given = new Set(Array.isArray(answers[qi]) ? answers[qi] : (answers[qi] != null ? [answers[qi]] : []));
+        isCorrect = right.size === given.size && [...right].every(i => given.has(i));
+
+        (q.options || []).forEach((opt, oi) => {
+          const picked = given.has(oi);
+          const correct = right.has(oi);
+          let cls = '';
+          let icon = '';
+          if (picked && correct) { cls = 'review-option correct-answer student-pick'; icon = '✓'; }
+          else if (picked && !correct) { cls = 'review-option wrong-answer student-pick'; icon = '✕'; }
+          else if (!picked && correct) { cls = 'review-option correct-answer'; icon = '✓ (правильна)'; }
+          else { cls = 'review-option'; icon = ''; }
+
+          detailHTML += `<div class="${cls}"><span>${icon ? icon + ' ' : ''}${window.esc(opt.text)}</span></div>`;
+        });
+
+      } else if (q.type === 'text') {
+        isCorrect = answers[qi] && String(answers[qi]).trim() ? true : false;
+        detailHTML = `<div class="review-option student-pick"><span>Відповідь: ${window.esc(String(answers[qi] || '(порожньо)'))}</span></div>`;
+
+      } else if (q.type === 'matching') {
+        const pairs = q.pairs || [];
+        const givenArr = answers[qi] || [];
+        let allCorrect = true;
+        pairs.forEach((pair, pi) => {
+          const studentAnswer = givenArr[pi] || '';
+          const correct = studentAnswer === pair.right;
+          if (!correct) allCorrect = false;
+          detailHTML += `
+            <div class="matching-pair" style="margin:4px 0;">
+              <div class="matching-left">${window.esc(pair.left)}</div>
+              <span class="matching-arrow">→</span>
+              <div style="flex:1;padding:8px 12px;border-radius:var(--radius-sm);border:1px solid ${correct ? 'var(--grade-10)' : 'var(--grade-1)'};background:${correct ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)'};">
+                ${window.esc(studentAnswer || '(не обрано)')}
+                ${!correct ? `<span style="color:var(--grade-10);margin-left:8px;font-size:12px;">→ ${window.esc(pair.right)}</span>` : ''}
+              </div>
+            </div>`;
+        });
+        isCorrect = allCorrect;
+      }
+
+      const badgeClass = isCorrect ? 'correct' : 'wrong';
+      const badgeText = isCorrect ? `+${pts} бал.` : '0 бал.';
+
+      questionsHTML += `
+        <div class="review-question ${badgeClass}">
+          <div class="review-question-header">
+            <div><b>Питання ${qi + 1}:</b> ${window.esc(q.text)}</div>
+            <span class="review-badge ${badgeClass}">${badgeText}</span>
+          </div>
+          ${q.image ? `<img src="${q.image}" style="max-width:300px;max-height:200px;border-radius:4px;margin-bottom:8px;border:1px solid var(--border-color);">` : ''}
+          ${detailHTML}
+        </div>
+      `;
+    });
+
+    window.areaEl.innerHTML = `
+      <div style="max-width:800px;margin:0 auto;">
+        <div class="review-summary">
+          <div class="review-score-circle ${circleClass}">
+            ${pct}%
+            <span>${score.earnedPoints}/${score.maxPoints}</span>
+          </div>
+          <div class="review-meta">
+            <h3>${window.esc(attempt.testTitle)}</h3>
+            <p><b>Учень:</b> ${window.esc(attempt.studentName)}</p>
+            <p><b>Дата:</b> ${window.esc(attempt.date)}</p>
+            <p>Правильних: ${score.correctCount} з ${score.totalQuestions}</p>
+          </div>
+          <button class="btn ghost" id="review-close-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Закрити
+          </button>
+        </div>
+
+        ${questionsHTML}
+      </div>
+    `;
+
+    window.$("#review-close-btn").onclick = () => window.closeTab(tabId);
+  });
+}
+
+
+// === 6. ПІДРАХУНОК БАЛІВ ===
+
+export function calcScore(test, answers) {
   let correctCount = 0;
   let totalQuestions = 0;
   let earnedPoints = 0;
   let maxPoints = 0;
 
-  test.questions.forEach((q,qi)=>{
+  test.questions.forEach((q, qi) => {
     totalQuestions++;
     const points = q.points || 1;
     maxPoints += points;
     let isCorrect = false;
 
-    if (q.type==="text"){ 
-      isCorrect = (answers[qi] && String(answers[qi]).trim()? true: false); 
-    } else { 
-      const right = new Set((q.options||[]).map((o,i)=> o.correct? i: null).filter(x=>x!==null));
-      const given = new Set(Array.isArray(answers[qi])? answers[qi] : (answers[qi]!=null?[answers[qi]]:[]));
-      
+    if (q.type === "text") {
+      isCorrect = answers[qi] && String(answers[qi]).trim() ? true : false;
+    } else if (q.type === "matching") {
+      const pairs = q.pairs || [];
+      const givenArr = answers[qi] || [];
+      isCorrect = pairs.length > 0 && pairs.every((pair, pi) => givenArr[pi] === pair.right);
+    } else {
+      const right = new Set((q.options || []).map((o, i) => o.correct ? i : null).filter(x => x !== null));
+      const given = new Set(Array.isArray(answers[qi]) ? answers[qi] : (answers[qi] != null ? [answers[qi]] : []));
+
       if (right.size === given.size && [...right].every(i => given.has(i))) {
         isCorrect = true;
       }
     }
-    
+
     if (isCorrect) {
       correctCount++;
       earnedPoints += points;
@@ -791,17 +1160,14 @@ export function calcScore(test, answers){
   return { correctCount, totalQuestions, earnedPoints, maxPoints };
 }
 
-/**
- * Попередній перегляд зображення (без змін)
- */
+
+// === 7. ПЕРЕГЛЯД ЗОБРАЖЕНЬ ===
+
 export function previewImage(dataUrl) {
-  // === ВИПРАВЛЕННЯ: Перевірка, чи dataUrl не є об'єктом помилки ===
-  // (Це виправлення з попередніх кроків, яке тут теж важливе)
   if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {
     console.warn("Invalid dataUrl for previewImage:", dataUrl);
     return;
   }
-  // === КІНЕЦЬ ВИПРАВЛЕННЯ ===
 
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";

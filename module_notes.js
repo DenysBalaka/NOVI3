@@ -121,7 +121,7 @@ export function renderNotesPage(contextData) {
         <label for="note-date-picker">Оберіть дату для нової замітки</label>
         <input type="date" id="note-date-picker" class="input">
       </div>
-      <button id="btn-create-note" class="btn" style="height: 38px;">Створити нову замітку</button>
+      <button id="btn-create-note" class="btn" style="height: 38px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Створити нову замітку</button>
     </div>
     
     <div class="output-box">
@@ -169,8 +169,8 @@ export function renderNotesPage(contextData) {
         <td>${window.esc(previewText)}</td>
         <td>
           <div style="display: flex; gap: 8px;">
-            <button class="btn open-note">Відкрити</button>
-            <button class="btn danger delete-note">Видалити</button>
+            <button class="btn open-note"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Відкрити</button>
+            <button class="btn danger delete-note"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Видалити</button>
           </div>
         </td>
       `;
@@ -240,7 +240,7 @@ function openNoteEditorTab(noteId) {
              <h2 style="margin: 0;">${formattedDate}</h2>
              <div style="font-size: 13px; color: var(--muted);">ID: ${noteId}</div>
           </div>
-          <button class="btn" id="note-tab-save">Зберегти і закрити</button>
+          <button class="btn" id="note-tab-save"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Зберегти і закрити</button>
         </div>
         <div id="note-full-toolbar-mount"></div>
         

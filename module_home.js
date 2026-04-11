@@ -66,14 +66,73 @@ export function renderHome(){
   const monthName = window.currentDisplayDate.toLocaleString('uk-UA', { month: 'long' });
   const weekDays = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'нд'];
   
-  // Отримуємо свята саме для поточного року, що відображається
   const holidaysThisYear = getHolidaysForYear(year);
+
+  const totalLessons = window.state.lessons.length;
+  const totalStudents = Object.values(window.state.students).reduce((sum, arr) => sum + arr.length, 0);
+  const totalClasses = Object.keys(window.state.students).length;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayLessons = window.state.lessons.filter(l => l.date && l.date.startsWith(todayStr)).length;
+
+  const recentLessons = window.state.lessons
+    .filter(l => l.date && l.class && l.subject)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    .slice(0, 3);
+
+  let quickLinksHtml = '';
+  recentLessons.forEach(l => {
+    const dateShort = (l.date || '').split('T')[0];
+    quickLinksHtml += `<div class="quick-link-item" data-date="${dateShort}">
+      <span class="quick-link-dot"></span>
+      <div class="quick-link-text">
+        <strong>${window.esc(l.subject)}</strong>
+        <small>${window.esc(l.class)} — ${dateShort}</small>
+      </div>
+    </div>`;
+  });
 
   const wrap = document.createElement("div");
   wrap.style.display = "flex";
   wrap.style.flexDirection = "column";
   wrap.style.height = "100%";
   wrap.innerHTML = `
+    <div class="home-dashboard">
+      <div class="dash-card dash-card--clickable" id="dash-lessons">
+        <div class="dash-card-icon" style="background:rgba(99,102,241,0.12);color:var(--accent);">📚</div>
+        <div class="dash-card-info">
+          <span class="dash-card-value">${totalLessons}</span>
+          <span class="dash-card-label">Уроків</span>
+        </div>
+      </div>
+      <div class="dash-card dash-card--clickable" id="dash-students">
+        <div class="dash-card-icon" style="background:rgba(34,197,94,0.12);color:#22c55e;">👥</div>
+        <div class="dash-card-info">
+          <span class="dash-card-value">${totalStudents}</span>
+          <span class="dash-card-label">Учнів</span>
+        </div>
+      </div>
+      <div class="dash-card dash-card--clickable" id="dash-classes">
+        <div class="dash-card-icon" style="background:rgba(234,179,8,0.12);color:#eab308;">🏫</div>
+        <div class="dash-card-info">
+          <span class="dash-card-value">${totalClasses}</span>
+          <span class="dash-card-label">Класів</span>
+        </div>
+      </div>
+      <div class="dash-card dash-card--clickable" id="dash-today">
+        <div class="dash-card-icon" style="background:rgba(168,85,247,0.12);color:#a855f7;">📅</div>
+        <div class="dash-card-info">
+          <span class="dash-card-value">${todayLessons}</span>
+          <span class="dash-card-label">Сьогодні</span>
+        </div>
+      </div>
+    </div>
+    ${recentLessons.length > 0 ? `
+    <div class="home-recent-section">
+      <div class="home-recent-header">
+        <span style="font-weight:600;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">Останні уроки</span>
+      </div>
+      <div class="home-recent-list">${quickLinksHtml}</div>
+    </div>` : ''}
     <div class="calendar-nav">
       <button id="cal-prev" class="nav-arrow">‹</button>
       <h3>${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${year}</h3>
@@ -82,6 +141,31 @@ export function renderHome(){
     <div class="grid" id="cal"></div>
   `; 
   window.areaEl.appendChild(wrap);
+
+  window.$("#dash-lessons").onclick = () => {
+    window.openTab("lessons", "Уроки", window.renderLessonsList);
+  };
+  window.$("#dash-students").onclick = () => {
+    window.openTab("students", "Учні", window.renderEditorPage);
+  };
+  window.$("#dash-classes").onclick = () => {
+    window.openTab("students", "Учні", window.renderEditorPage);
+  };
+  window.$("#dash-today").onclick = () => {
+    window.openTab("lessons", "Уроки", window.renderLessonsList);
+  };
+
+  window.$$(".quick-link-item", wrap).forEach(item => {
+    item.onclick = () => {
+      const dateKey = item.dataset.date;
+      if (dateKey) {
+        const lesson = window.state.lessons.find(l => l.date && l.date.startsWith(dateKey));
+        if (lesson) {
+          window.openTab("lesson-" + lesson.id, `Урок ${dateKey}`, () => window.renderLesson(lesson.id));
+        }
+      }
+    };
+  });
   
   window.$("#cal-prev").onclick = () => {
     window.currentDisplayDate.setDate(1); 
