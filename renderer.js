@@ -4,7 +4,7 @@ import { openTab, setActive, closeTab } from './navigation.js';
 import { renderHome, showCalendarContextMenu } from './module_home.js';
 import { renderLesson, renderLessonsList, openOrCreateLesson, renderNewLessonDialog, showLessonListContextMenu } from './module_lessons.js';
 import { renderEditorPage, populateEditorClasses, moveClassOrder, populateEditorSubjects, showEditorContextMenu, bindEditorPageLogic } from './module_students.js';
-import { renderTests, renderTestResults, renderRunTest, calcScore, previewImage } from './module_tests.js';
+import { renderTests, renderTestResults, renderRunTest, calcScore, previewImage, refreshTestsIfOpen } from './module_tests.js';
 import { renderReportPage, populateReportPageFilters, bindReportPageLogic, generateReportHTML } from './module_reports.js';
 import { renderNotesPage } from './module_notes.js';
 import { renderSettings, updateGoogleAuthStatusUI } from './settings_app/module_settings.js';
@@ -42,7 +42,7 @@ window.renderHome = renderHome; window.renderLesson = renderLesson; window.rende
 window.openOrCreateLesson = openOrCreateLesson; window.renderNewLessonDialog = renderNewLessonDialog;
 window.renderEditorPage = renderEditorPage; window.populateEditorClasses = populateEditorClasses; window.moveClassOrder = moveClassOrder;
 window.populateEditorSubjects = populateEditorSubjects; window.showEditorContextMenu = showEditorContextMenu; window.bindEditorPageLogic = bindEditorPageLogic;
-window.renderTests = renderTests; window.renderTestResults = renderTestResults; window.renderRunTest = renderRunTest; window.calcScore = calcScore; window.previewImage = previewImage;
+window.renderTests = renderTests; window.renderTestResults = renderTestResults; window.renderRunTest = renderRunTest; window.calcScore = calcScore; window.previewImage = previewImage; window.refreshTestsIfOpen = refreshTestsIfOpen;
 window.renderReportPage = renderReportPage; window.populateReportPageFilters = populateReportPageFilters; window.bindReportPageLogic = bindReportPageLogic; window.generateReportHTML = generateReportHTML;
 window.renderNotesPage = renderNotesPage; window.renderSettings = renderSettings; window.renderExportPage = renderExportPage;
 window.renderBoardPage = renderBoardPage; window.createNewBoard = createNewBoard;
@@ -114,7 +114,9 @@ async function init(){
     teacherProfile: {
       fullName: "", school: "", position: "Вчитель",
       category: "", title: "", experience: ""
-    }
+    },
+    telegramBotEnabled: false,
+    telegramBotToken: ""
   };
 
   const loadedSettings = (await window.tj.readJSON(window.paths.settingsPath)) || {};
@@ -124,6 +126,8 @@ async function init(){
   else migratedSettings.teacherProfile = { ...DEFAULT_SETTINGS.teacherProfile, ...migratedSettings.teacherProfile };
   const newNavIds = ['nav-schedule', 'nav-classjournal', 'nav-curriculum'];
   newNavIds.forEach(id => { if (!migratedSettings.navOrder.includes(id)) migratedSettings.navOrder.push(id); });
+  if (migratedSettings.telegramBotEnabled === undefined) migratedSettings.telegramBotEnabled = DEFAULT_SETTINGS.telegramBotEnabled;
+  if (migratedSettings.telegramBotToken === undefined) migratedSettings.telegramBotToken = DEFAULT_SETTINGS.telegramBotToken;
 
   window.state = {
     lessons: (await window.tj.readJSON(window.paths.lessonsPath)) || [],
@@ -173,6 +177,12 @@ async function init(){
   });
 
   await checkGoogleLogin();
+
+  window.tj.on("tj:data-changed", async (payload) => {
+    if (!payload || payload.kind !== "attempts") return;
+    window.state.attempts = (await window.tj.readJSON(window.paths.attemptsPath)) || [];
+    refreshTestsIfOpen();
+  });
 
   setInterval(async () => {
     if (window.auth.profile && window.state.settings.autoSync) {

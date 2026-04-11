@@ -147,6 +147,34 @@ export function renderSettings() {
         </div>
       </div>
 
+      <div class="settings-card" id="telegram-settings-section">
+        <div class="settings-card-header">
+          <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(0,136,204,0.15),rgba(0,136,204,0.05));color:#0088cc;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2L2 12l5.5 2L19 6l-8.5 6v6l3-4"/></svg>
+          </div>
+          <div class="export-card-title">
+            <h3>Telegram-бот</h3>
+            <p>Віддалене проходження тестів учнями через месенджер</p>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+              <input type="checkbox" id="tg-bot-enabled" ${s.telegramBotEnabled ? "checked" : ""}>
+              <span>Увімкнути бота (long polling; працює, поки запущено цей додаток)</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label for="tg-bot-token">HTTP API токен бота (отримати у @BotFather)</label>
+            <input type="password" class="input" id="tg-bot-token" placeholder="123456789:AA..." value="${window.esc(s.telegramBotToken || "")}" autocomplete="off" spellcheck="false">
+          </div>
+          <p style="font-size:13px;color:var(--text-secondary);margin:0;line-height:1.45;">
+            Які тести показувати в боті, виберіть у розділі <b>Тести → Telegram</b>. Після завершення тесту бали з’являються у вкладці «Результати» автоматично.
+          </p>
+          <div id="tg-feedback" class="settings-feedback"></div>
+        </div>
+      </div>
+
       <div class="settings-card" id="google-settings-section">
         <div class="settings-card-header">
           <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(34,197,94,0.15),rgba(34,197,94,0.05));color:#22c55e;">
@@ -210,6 +238,39 @@ export function renderSettings() {
   // === Логіка ===
 
   updateGoogleAuthStatusUI();
+
+  const tgFb = window.$("#tg-feedback");
+  const reloadTelegramBot = async () => {
+    try {
+      await window.tj.telegramReload();
+      if (tgFb) {
+        tgFb.textContent = "Параметри збережено, бот перезапущено.";
+        tgFb.style.color = "var(--grade-10)";
+        setTimeout(() => { tgFb.textContent = ""; }, 2800);
+      }
+    } catch (e) {
+      if (tgFb) {
+        tgFb.textContent = "Не вдалося перезапустити бота.";
+        tgFb.style.color = "var(--danger)";
+      }
+    }
+  };
+  const tgEnabled = window.$("#tg-bot-enabled");
+  if (tgEnabled) {
+    tgEnabled.onchange = async () => {
+      window.state.settings.telegramBotEnabled = !!tgEnabled.checked;
+      window.saveSettings();
+      await reloadTelegramBot();
+    };
+  }
+  const tgToken = window.$("#tg-bot-token");
+  if (tgToken) {
+    tgToken.oninput = window.debounce(async () => {
+      window.state.settings.telegramBotToken = tgToken.value.trim();
+      window.saveSettings();
+      await reloadTelegramBot();
+    }, 900);
+  }
 
   // Бекапи
   window.$("#btn-backup-create").onclick = async () => {

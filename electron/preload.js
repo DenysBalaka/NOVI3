@@ -40,12 +40,14 @@ contextBridge.exposeInMainWorld("tj", {
   cloudSyncUploadForce: () => ipcRenderer.invoke("tj:cloud-sync-upload-force"),
   cloudSyncDownload: () => ipcRenderer.invoke("tj:cloud-sync-download"),
 
+  telegramReload: () => ipcRenderer.invoke("tj:telegram-reload"),
+
   // Локальне резервне копіювання
   createBackup: () => ipcRenderer.invoke("tj:create-backup"),
   restoreBackup: () => ipcRenderer.invoke("tj:restore-backup"),
 
   on: (channel, func) => {
-    if (["show-context-menu", "board-init-data"].includes(channel)) {
+    if (["show-context-menu", "board-init-data", "tj:data-changed"].includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
       ipcRenderer.on(channel, (event, ...args) => func(...args));
     }

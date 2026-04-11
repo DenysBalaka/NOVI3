@@ -25,6 +25,11 @@ export function renderTestResults() {
   renderTestsPage();
 }
 
+export function renderTestsTelegramTab() {
+  currentTestsView = 'telegram';
+  renderTestsPage();
+}
+
 function renderTestsPage() {
   window.areaEl.innerHTML = `
     <h2>Керування тестами</h2>
@@ -38,6 +43,10 @@ function renderTestsPage() {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
         Результати
       </button>
+      <button id="tests-tab-telegram" class="${currentTestsView === 'telegram' ? 'active' : ''}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><path d="M21.5 2L2 12l5.5 2L19 6l-8.5 6v6l3-4"/></svg>
+        Telegram
+      </button>
     </div>
 
     <div id="tests-view-container"></div>
@@ -45,13 +54,82 @@ function renderTestsPage() {
 
   window.$("#tests-tab-tests").onclick = () => { currentTestsView = 'tests'; renderTestsPage(); };
   window.$("#tests-tab-results").onclick = () => { currentTestsView = 'results'; renderTestsPage(); };
+  window.$("#tests-tab-telegram").onclick = () => { currentTestsView = 'telegram'; renderTestsPage(); };
 
   const container = window.$("#tests-view-container");
   if (currentTestsView === 'tests') {
     renderTestsListView(container);
-  } else {
+  } else if (currentTestsView === 'results') {
     renderResultsView(container);
+  } else {
+    renderTelegramTestsView(container);
   }
+}
+
+function renderTelegramTestsView(container) {
+  const tgOn = window.state.settings?.telegramBotEnabled && (window.state.settings?.telegramBotToken || '').trim().length > 0;
+  const tests = window.state.tests || [];
+
+  container.innerHTML = `
+    <div class="config-box" style="flex-direction:column;align-items:stretch;gap:12px;">
+      <p style="margin:0;color:var(--text-secondary);font-size:14px;line-height:1.5;">
+        Позначте тести, які учні зможуть обрати в Telegram після команди <code>/start</code>.
+        Токен бота та вмикання — у <b>Налаштуваннях → Telegram-бот</b>. Програма має бути запущена на комп’ютері вчителя, щоб бот відповідав.
+      </p>
+      <div style="padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-light);border:1px solid var(--border-color);font-size:13px;">
+        Стан бота: ${tgOn
+          ? '<span style="color:var(--grade-10);font-weight:600;">увімкнено (якщо додаток запущено)</span>'
+          : '<span style="color:var(--muted);">вимкнено або токен не задано</span>'}
+      </div>
+    </div>
+
+    <div class="output-box">
+      <div class="output-box-header">
+        <h3>Доступність тестів у боті</h3>
+      </div>
+      <table class="table" id="tg-tests-table">
+        <thead>
+          <tr>
+            <th>Доступний</th>
+            <th>Назва</th>
+            <th>Клас</th>
+            <th>Питань</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  `;
+
+  const tbody = window.$("#tg-tests-table tbody");
+  if (tests.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);">Немає збережених тестів.</td></tr>`;
+    return;
+  }
+
+  tests.forEach((t, idx) => {
+    const n = (t.questions || []).length;
+    const tr = document.createElement("tr");
+    const checked = t.availableInTelegram !== false ? "checked" : "";
+    tr.innerHTML = `
+      <td style="width:100px;text-align:center;">
+        <input type="checkbox" class="tg-test-cb" data-test-idx="${idx}" ${checked} ${n === 0 ? "disabled title=\"Додайте питання\"" : ""}>
+      </td>
+      <td>${window.esc(t.title)}</td>
+      <td>${window.esc(t.className || "—")}</td>
+      <td>${n}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  window.$$(".tg-test-cb", tbody).forEach((cb) => {
+    cb.onchange = () => {
+      const idx = parseInt(cb.dataset.testIdx, 10);
+      if (!window.state.tests[idx]) return;
+      window.state.tests[idx].availableInTelegram = cb.checked;
+      window.saveTests();
+    };
+  });
 }
 
 function renderTestsListView(container) {
@@ -106,7 +184,8 @@ function renderTestsListView(container) {
       className: classSel.value || "",
       subjectName: subjectSel.value || "",
       shuffle: false,
-      questions: []
+      questions: [],
+      availableInTelegram: true
     };
 
     window.state.tests.push(newTest);
@@ -1162,6 +1241,10 @@ export function calcScore(test, answers) {
 
 
 // === 7. ПЕРЕГЛЯД ЗОБРАЖЕНЬ ===
+
+export function refreshTestsIfOpen() {
+  if (window.active === "tests") renderTestsPage();
+}
 
 export function previewImage(dataUrl) {
   if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {

@@ -8,6 +8,7 @@ const { Document, Packer, Paragraph, TextRun, ImageRun } = require("docx");
 const AdmZip = require("adm-zip");
 
 const auth = require("./auth_handler.js");
+const { startTelegramBot, stopTelegramBot } = require("./telegram_bot.js");
 
 let win;
 function ensureDirs(){
@@ -120,9 +121,14 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  startTelegramBot(paths, () => win);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on("before-quit", () => {
+  stopTelegramBot();
 });
 
 app.on("window-all-closed", () => {
@@ -174,6 +180,11 @@ ipcMain.handle("tj:open-board-window", (e, boardPath) => createBoardWindow(board
 
 // === IPC: Файли ===
 ipcMain.handle("tj:get-paths", () => paths);
+
+ipcMain.handle("tj:telegram-reload", () => {
+  startTelegramBot(paths, () => win);
+  return { ok: true };
+});
 
 ipcMain.handle("tj:read-json", async (e, p) => {
   try {
