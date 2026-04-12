@@ -167,12 +167,6 @@ async function presentQuestion(ctx, paths, session) {
     session.matchingPairIdx = 0;
     session.matchingPicks = [];
     session.matchingRightsShuffled = shuffleArray(pairs.map((p) => p.right));
-    if (q.image) {
-      await sendQuestionPhoto(ctx, header, q.image);
-      session.matchingSkipQuestionTextInPair = true;
-    } else {
-      delete session.matchingSkipQuestionTextInPair;
-    }
     return presentMatchingPair(ctx, paths, session);
   }
 
@@ -196,17 +190,31 @@ async function presentMatchingPair(ctx, paths, session) {
     delete session.matchingPairIdx;
     delete session.matchingPicks;
     delete session.matchingRightsShuffled;
-    delete session.matchingSkipQuestionTextInPair;
     return presentQuestion(ctx, paths, session);
   }
 
   const pair = pairs[pi];
   const rights = session.matchingRightsShuffled;
-  const qTextBlock = session.matchingSkipQuestionTextInPair ? "" : `${escHtml(q.text)}\n\n`;
+  const totalQ = session.test.questions.length;
+  const stem = q.image && pi > 0 ? "" : `${escHtml(q.text)}\n\n`;
   const caption =
-    `<b>Питання ${qi + 1}</b> (${pi + 1}/${total} — відповідність)\n${qTextBlock}` +
+    `<b>Питання ${qi + 1} з ${totalQ}</b> (${pi + 1}/${total} — відповідність)\n${stem}` +
     `Ліва частина: <b>${escHtml(pair.left)}</b>\n\nОберіть відповідь справа:`;
   const kb = matchingKeyboard(qi, pi, rights);
+
+  if (pi === 0 && q.image) {
+    const parsed = dataUrlToBuffer(q.image);
+    if (parsed) {
+      await ctx.replyWithPhoto(
+        { source: parsed.buffer, filename: `q.${parsed.mime.split("/")[1] || "png"}` },
+        { caption, parse_mode: "HTML", ...kb }
+      );
+    } else {
+      await ctx.reply(caption, { parse_mode: "HTML", ...kb });
+    }
+    return;
+  }
+
   await ctx.reply(caption, { parse_mode: "HTML", ...kb });
 }
 
@@ -217,11 +225,13 @@ async function finishTest(ctx, paths, session) {
   const score = calcScore(runTest, answers);
   const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
 
+  const completedAt = new Date();
   const attempt = {
     testId: originalTest.id,
     testTitle: originalTest.title,
     studentName: session.studentName || "Telegram",
-    date: new Date().toLocaleString("uk-UA"),
+    date: completedAt.toLocaleString("uk-UA", { dateStyle: "short", timeStyle: "medium" }),
+    completedAtIso: completedAt.toISOString(),
     score,
     answers,
     questions: runTest.questions,

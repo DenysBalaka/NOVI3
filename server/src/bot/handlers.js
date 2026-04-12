@@ -63,6 +63,36 @@ async function sendQuestionPhoto(ctx, caption, dataUrl) {
   );
 }
 
+async function beginTestSession(ctx, row, meta = {}) {
+  const chatId = ctx.chat.id;
+  const payload = row.payload_json;
+  const originalTest = typeof payload === "string" ? JSON.parse(payload) : payload;
+  if (!originalTest.id) originalTest.id = row.external_id;
+  if (!originalTest.title) originalTest.title = row.title;
+  const { test, questionMap, optionMaps } = buildRunTest(originalTest);
+  const s = getSession(chatId);
+  Object.assign(s, {
+    step: "question",
+    testId: row.external_id,
+    cloudTestId: row.id,
+    teacherId: row.teacher_id,
+    studentRowId: meta.studentRowId != null ? meta.studentRowId : null,
+    telegramUserId: chatId,
+    originalTest,
+    test,
+    questionMap,
+    optionMaps,
+    answers: {},
+    qi: 0,
+    chatId,
+    studentName: meta.studentName || ctx.from?.first_name || "Telegram",
+    guestAge: meta.guestAge,
+    guestGrade: meta.guestGrade,
+  });
+  await ctx.reply(`Починаємо тест «${escHtml(originalTest.title)}».`, { parse_mode: "HTML", ...replyMainMenu() });
+  await presentQuestion(ctx, s);
+}
+
 async function presentQuestion(ctx, session) {
   const { test } = session;
   const qi = session.qi;
@@ -136,12 +166,6 @@ async function presentQuestion(ctx, session) {
     session.matchingPairIdx = 0;
     session.matchingPicks = [];
     session.matchingRightsShuffled = shuffleArray(pairs.map((p) => p.right));
-    if (q.image) {
-      await sendQuestionPhoto(ctx, header, q.image);
-      session.matchingSkipQuestionTextInPair = true;
-    } else {
-      delete session.matchingSkipQuestionTextInPair;
-    }
     return presentMatchingPair(ctx, session);
   }
 
@@ -165,17 +189,31 @@ async function presentMatchingPair(ctx, session) {
     delete session.matchingPairIdx;
     delete session.matchingPicks;
     delete session.matchingRightsShuffled;
-    delete session.matchingSkipQuestionTextInPair;
     return presentQuestion(ctx, session);
   }
 
   const pair = pairs[pi];
   const rights = session.matchingRightsShuffled;
-  const qTextBlock = session.matchingSkipQuestionTextInPair ? "" : `${escHtml(q.text)}\n\n`;
+  const totalQ = session.test.questions.length;
+  const stem = q.image && pi > 0 ? "" : `${escHtml(q.text)}\n\n`;
   const caption =
-    `<b>Питання ${qi + 1}</b> (${pi + 1}/${total} — відповідність)\n${qTextBlock}` +
+    `<b>Питання ${qi + 1} з ${totalQ}</b> (${pi + 1}/${total} — відповідність)\n${stem}` +
     `Ліва частина: <b>${escHtml(pair.left)}</b>\n\nОберіть відповідь справа:`;
   const kb = matchingKeyboard(qi, pi, rights);
+
+  if (pi === 0 && q.image) {
+    const parsed = dataUrlToBuffer(q.image);
+    if (parsed) {
+      await ctx.replyWithPhoto(
+        { source: parsed.buffer, filename: `q.${parsed.mime.split("/")[1] || "png"}` },
+        { caption, parse_mode: "HTML", ...kb }
+      );
+    } else {
+      await ctx.reply(caption, { parse_mode: "HTML", ...kb });
+    }
+    return;
+  }
+
   await ctx.reply(caption, { parse_mode: "HTML", ...kb });
 }
 
@@ -185,12 +223,14 @@ async function finishTest(ctx, session) {
   const answers = session.answers;
   const score = calcScore(runTest, answers);
   const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
+  const completedAt = new Date();
 
   const attemptPayload = {
     testId: originalTest.external_id || originalTest.id,
     testTitle: originalTest.title,
     studentName: session.studentName || "Telegram",
-    date: new Date().toLocaleString("uk-UA"),
+    date: completedAt.toLocaleString("uk-UA", { dateStyle: "short", timeStyle: "medium" }),
+    completedAtIso: completedAt.toISOString(),
     score,
     answers,
     questions: runTest.questions,
@@ -200,6 +240,9 @@ async function finishTest(ctx, session) {
     telegramChatId: session.chatId,
     cloudTestId: session.cloudTestId,
   };
+  if (session.guestAge != null) attemptPayload.guestAge = session.guestAge;
+  if (session.guestGrade != null && String(session.guestGrade).trim() !== "")
+    attemptPayload.guestGrade = String(session.guestGrade).trim();
 
   try {
     await Q.insertAttempt({
@@ -345,9 +388,37 @@ async function processSelfLinkName(ctx, s, fullNameText) {
   );
 }
 
+async function startOpenInviteTest(ctx, s) {
+  const chatId = ctx.chat.id;
+  const row = await Q.validateOpenTestInvite(s.inviteCode, s.inviteOpenTestId);
+  if (!row) {
+    await ctx.reply("Запрошення недійсне або тест знято з публікації.", replyMainMenu());
+    clearSession(chatId);
+    return;
+  }
+  const name = s.guestFullName || ctx.from?.first_name || "Гість";
+  const age = s.guestAge;
+  const grade = s.guestGrade;
+  delete s.inviteCode;
+  delete s.inviteOpenTestId;
+  delete s.guestFullName;
+  delete s.guestAge;
+  delete s.guestGrade;
+  await beginTestSession(ctx, row, {
+    studentRowId: null,
+    studentName: name,
+    guestAge: age,
+    guestGrade: grade,
+  });
+}
+
 async function handleStartCommand(ctx) {
   const chatId = ctx.chat.id;
   const s0 = getSession(chatId);
+  if (["invite_open_name", "invite_open_age", "invite_open_grade"].includes(s0.step)) {
+    await ctx.reply("Завершіть кроки запрошення або надішліть /cancel.");
+    return;
+  }
   if (
     s0.test &&
     (s0.step === "question" || s0.step === "wait_check" || s0.step === "wait_text")
@@ -414,6 +485,20 @@ async function processStartPayload(ctx, payload) {
     return true;
   }
 
+  if (inv.test_id && !inv.student_id && !inv.class_id) {
+    const s = getSession(chatId);
+    s.step = "invite_open_name";
+    s.inviteCode = code;
+    s.inviteOpenTestId = inv.test_id;
+    s.chatId = chatId;
+    await ctx.reply(
+      `Відкрите запрошення на тест.\n\n` +
+        `<b>Крок 1 з 3:</b> введіть <b>ПІБ</b> повністю (одним повідомленням).`,
+      { parse_mode: "HTML", ...replyMainMenu() }
+    );
+    return true;
+  }
+
   if (inv.student_id) {
     try {
       const ok = await Q.bindStudentTelegram(inv.student_id, chatId, username);
@@ -468,7 +553,16 @@ function createBot() {
     const t = (ctx.message.text || "").trim();
     if (t.startsWith("/")) return next();
     const s = getSession(ctx.chat.id);
-    if (["link_class", "link_name", "invite_class_name"].includes(s.step)) {
+    if (
+      [
+        "link_class",
+        "link_name",
+        "invite_class_name",
+        "invite_open_name",
+        "invite_open_age",
+        "invite_open_grade",
+      ].includes(s.step)
+    ) {
       return next();
     }
     await handleStartCommand(ctx);
@@ -491,31 +585,10 @@ function createBot() {
         await ctx.reply("Тест недоступний.");
         return;
       }
-      const payload = row.payload_json;
-      const originalTest = typeof payload === "string" ? JSON.parse(payload) : payload;
-      if (!originalTest.id) originalTest.id = row.external_id;
-      if (!originalTest.title) originalTest.title = row.title;
-      const { test, questionMap, optionMaps } = buildRunTest(originalTest);
-      const stu = await Q.getStudentByTelegram(chatId);
-      const s = getSession(chatId);
-      Object.assign(s, {
-        step: "question",
-        testId: row.external_id,
-        cloudTestId: row.id,
-        teacherId: row.teacher_id,
-        studentRowId: stu?.id,
-        telegramUserId: chatId,
-        originalTest,
-        test,
-        questionMap,
-        optionMaps,
-        answers: {},
-        qi: 0,
-        chatId,
-        studentName: stu?.full_name || ctx.from?.first_name || "Telegram",
+      await beginTestSession(ctx, row, {
+        studentRowId: row.student_id,
+        studentName: row.full_name,
       });
-      await ctx.reply(`Починаємо тест «${escHtml(originalTest.title)}».`, { parse_mode: "HTML", ...replyMainMenu() });
-      await presentQuestion(ctx, s);
       return;
     }
 
@@ -566,6 +639,43 @@ function createBot() {
     }
 
     const s = getSession(chatId);
+
+    if (s.step === "invite_open_name") {
+      if (!text.trim()) {
+        await ctx.reply("Введіть непорожнє ПІБ.");
+        return;
+      }
+      s.guestFullName = text.trim();
+      s.step = "invite_open_age";
+      await ctx.reply("<b>Крок 2 з 3:</b> вкажіть <b>вік</b> числом років (наприклад 15).", {
+        parse_mode: "HTML",
+        ...replyMainMenu(),
+      });
+      return;
+    }
+
+    if (s.step === "invite_open_age") {
+      const age = parseInt(String(text).replace(/[^\d]/g, ""), 10);
+      if (Number.isNaN(age) || age < 3 || age > 120) {
+        await ctx.reply("Введіть вік одним числом (років), наприклад 14.");
+        return;
+      }
+      s.guestAge = age;
+      s.step = "invite_open_grade";
+      await ctx.reply(
+        "<b>Крок 3 з 3:</b> вкажіть <b>клас / курс</b> (наприклад 9-А). Якщо не застосовується — надішліть <code>—</code>.",
+        { parse_mode: "HTML", ...replyMainMenu() }
+      );
+      return;
+    }
+
+    if (s.step === "invite_open_grade") {
+      let g = text.trim();
+      if (g === "—" || g === "-" || g.toLowerCase() === "немає") g = "";
+      s.guestGrade = g;
+      await startOpenInviteTest(ctx, s);
+      return;
+    }
 
     if (s.step === "link_class") {
       if (!text) {

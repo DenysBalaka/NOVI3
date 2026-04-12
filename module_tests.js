@@ -142,6 +142,13 @@ async function syncAttemptsFromCloud() {
     payload.cloudAttemptId = row.id;
     payload.source = "telegram";
     if (row.test_external_id && !payload.testId) payload.testId = row.test_external_id;
+    if (row.created_at) {
+      const ca = new Date(row.created_at);
+      if (!Number.isNaN(ca.getTime())) {
+        payload.completedAtIso = ca.toISOString();
+        payload.date = ca.toLocaleString("uk-UA", { dateStyle: "short", timeStyle: "medium" });
+      }
+    }
     window.state.attempts.push(payload);
     added++;
   }
@@ -221,20 +228,33 @@ function renderTelegramTestsView(container) {
         <button type="button" class="btn" id="tg-inv-create" ${cloudOk ? "" : "disabled"}>Створити посилання</button>
       </div>
       <p id="tg-inv-out" style="margin:0 12px 12px;font-size:13px;word-break:break-all;color:var(--accent);"></p>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);">
+        <div class="form-group" style="min-width:220px;">
+          <label for="tg-open-inv-test">Відкрите посилання (ПІБ, вік, клас у боті — без прив’язки до журналу)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:8px;">
+            <select id="tg-open-inv-test" class="input" style="min-width:220px;"></select>
+            <button type="button" class="btn" id="tg-open-inv-create" ${cloudOk ? "" : "disabled"}>Створити посилання</button>
+          </div>
+        </div>
+        <p id="tg-open-inv-out" style="margin:8px 0 0;font-size:13px;word-break:break-all;color:var(--accent);"></p>
+      </div>
     </div>
 
     <div class="output-box" style="margin-top:16px;">
       <div class="output-box-header">
         <h3>Опублікувати тести в боті</h3>
       </div>
+      <p style="margin:0 12px 10px;font-size:13px;color:var(--text-secondary);">Позначте тести та натисніть «Відправити обрані в хмару».</p>
+      <div style="padding:0 12px 12px;">
+        <button type="button" class="btn" id="tg-bulk-push" ${cloudOk ? "" : "disabled"}>Відправити обрані в хмару</button>
+      </div>
       <table class="table" id="tg-tests-table">
         <thead>
           <tr>
-            <th>У боті</th>
+            <th style="width:44px;text-align:center;"><input type="checkbox" id="tg-check-all" title="Усі"></th>
             <th>Назва</th>
             <th>Клас</th>
             <th>Питань</th>
-            <th style="width:120px;">Хмара</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -457,62 +477,98 @@ function renderTelegramTestsView(container) {
 
   if (testPick && testPick.value) refreshAssignmentList();
 
+  const openInvSel = window.$("#tg-open-inv-test");
+  if (openInvSel) {
+    openInvSel.innerHTML = '<option value="">— оберіть тест —</option>';
+    tests.forEach((t) => {
+      const n = (t.questions || []).length;
+      if (n === 0) return;
+      const o = document.createElement("option");
+      o.value = t.id;
+      o.textContent = t.title || t.id;
+      openInvSel.appendChild(o);
+    });
+  }
+  const openInvBtn = window.$("#tg-open-inv-create");
+  if (openInvBtn) {
+    openInvBtn.onclick = async () => {
+      const tid = openInvSel && openInvSel.value;
+      const out = window.$("#tg-open-inv-out");
+      if (!tid) {
+        await window.showCustomAlert("Посилання", "Оберіть тест.");
+        return;
+      }
+      try {
+        const data = await window.callCloudApi("POST", "invites", { testExternalId: tid });
+        if (out) {
+          out.textContent = data.link || "";
+          out.style.color = "var(--accent)";
+        }
+      } catch (e) {
+        await window.showCustomAlert("Помилка", e.message || String(e));
+      }
+    };
+  }
+
   const tbody = window.$("#tg-tests-table tbody");
   if (tests.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);">Немає збережених тестів.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);">Немає збережених тестів.</td></tr>`;
     return;
   }
 
   tests.forEach((t, idx) => {
     const n = (t.questions || []).length;
     const tr = document.createElement("tr");
-    const checked = t.availableInTelegram !== false ? "checked" : "";
     tr.innerHTML = `
-      <td style="width:100px;text-align:center;">
-        <input type="checkbox" class="tg-test-cb" data-test-idx="${idx}" ${checked} ${n === 0 ? "disabled title=\"Додайте питання\"" : ""}>
+      <td style="text-align:center;">
+        <input type="checkbox" class="tg-bulk-cb" data-test-idx="${idx}" ${n === 0 ? "disabled title=\"Додайте питання\"" : ""}>
       </td>
       <td>${window.esc(t.title)}</td>
       <td>${window.esc(t.className || "—")}</td>
       <td>${n}</td>
-      <td><button type="button" class="btn tg-push-cloud" data-test-idx="${idx}" ${cloudOk && n > 0 ? "" : "disabled"} style="min-height:32px;">Відправити</button></td>
     `;
     tbody.appendChild(tr);
   });
 
-  window.$$(".tg-test-cb", tbody).forEach((cb) => {
-    cb.onchange = async () => {
-      const idx = parseInt(cb.dataset.testIdx, 10);
-      if (!window.state.tests[idx]) return;
-      window.state.tests[idx].availableInTelegram = cb.checked;
-      window.saveTests();
-      if (!cloudOk) return;
-      try {
-        await pushTestToCloud(window.state.tests[idx]);
-        msgEl.textContent = "Тест оновлено в хмарі.";
-        msgEl.style.color = "var(--grade-10)";
-      } catch (e) {
-        msgEl.textContent = e.message || String(e);
-        msgEl.style.color = "var(--danger)";
-      }
+  const checkAll = window.$("#tg-check-all");
+  if (checkAll) {
+    checkAll.onchange = () => {
+      window.$$(".tg-bulk-cb:not(:disabled)", tbody).forEach((cb) => {
+        cb.checked = checkAll.checked;
+      });
     };
-  });
+  }
 
-  window.$$(".tg-push-cloud", tbody).forEach((btn) => {
-    btn.onclick = async () => {
-      const idx = parseInt(btn.dataset.testIdx, 10);
-      const test = window.state.tests[idx];
-      if (!test || cloudOk === false) return;
-      msgEl.textContent = "Відправка…";
-      try {
-        await pushTestToCloud(test);
-        msgEl.textContent = "Тест відправлено в хмару.";
-        msgEl.style.color = "var(--grade-10)";
-      } catch (e) {
-        msgEl.textContent = e.message || String(e);
-        msgEl.style.color = "var(--danger)";
+  const bulkPush = window.$("#tg-bulk-push");
+  if (bulkPush) {
+    bulkPush.onclick = async () => {
+      const selected = window.$$(".tg-bulk-cb:checked", tbody);
+      if (selected.length === 0) {
+        await window.showCustomAlert("Хмара", "Позначте хоча б один тест.");
+        return;
       }
+      msgEl.textContent = "Відправка…";
+      let ok = 0;
+      for (const cb of selected) {
+        const idx = parseInt(cb.dataset.testIdx, 10);
+        const test = window.state.tests[idx];
+        if (!test || (test.questions || []).length === 0) continue;
+        try {
+          await pushTestToCloud(test);
+          test.availableInTelegram = true;
+          ok++;
+        } catch (e) {
+          msgEl.textContent = e.message || String(e);
+          msgEl.style.color = "var(--danger)";
+          window.saveTests();
+          return;
+        }
+      }
+      window.saveTests();
+      msgEl.textContent = `Відправлено в хмару тестів: ${ok}.`;
+      msgEl.style.color = "var(--grade-10)";
     };
-  });
+  }
 }
 
 function renderTestsListView(container) {
@@ -579,47 +635,174 @@ function renderTestsListView(container) {
 
 // === РЕЗУЛЬТАТИ ТЕСТІВ ===
 
+function attemptTimeMs(a) {
+  if (a.completedAtIso) {
+    const t = new Date(a.completedAtIso).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  return 0;
+}
+
+function formatAttemptDisplayDate(attempt) {
+  if (attempt.completedAtIso) {
+    try {
+      return new Date(attempt.completedAtIso).toLocaleString("uk-UA", {
+        dateStyle: "short",
+        timeStyle: "medium",
+      });
+    } catch (_) {}
+  }
+  return attempt.date || "—";
+}
+
+function showAttemptsChartModal(attempts, mode, title) {
+  const ordered = [...attempts].sort((a, b) => attemptTimeMs(a) - attemptTimeMs(b));
+  const overlay = document.createElement("div");
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;";
+  const box = document.createElement("div");
+  box.style.cssText =
+    "background:var(--bg-panel, #1e1e2e);border-radius:12px;padding:16px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.4);";
+  const w = Math.min(720, window.innerWidth - 48);
+  const h = 260;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  const pad = 36;
+  const pcts = ordered.map((a) =>
+    a.score && a.score.maxPoints > 0 ? Math.round((a.score.earnedPoints / a.score.maxPoints) * 100) : 0
+  );
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-primary").trim() || "#e4e4e7";
+  ctx.font = "14px system-ui,sans-serif";
+  ctx.fillText(title, pad, 22);
+
+  if (pcts.length === 0) {
+    ctx.fillStyle = "#888";
+    ctx.fillText("Немає даних для діаграми.", pad, 60);
+  } else if (mode === "count") {
+    ctx.fillStyle = ctx.fillStyle;
+    ctx.font = "20px system-ui,sans-serif";
+    ctx.fillText(`Усього спроб: ${pcts.length}`, pad, 80);
+  } else {
+    ctx.strokeStyle = "rgba(128,128,128,0.4)";
+    ctx.beginPath();
+    ctx.moveTo(pad, h - pad);
+    ctx.lineTo(w - pad, h - pad);
+    ctx.moveTo(pad, pad);
+    ctx.lineTo(pad, h - pad);
+    ctx.stroke();
+    ctx.fillStyle = "#888";
+    ctx.font = "11px system-ui,sans-serif";
+    ctx.fillText("0", 12, h - pad + 4);
+    ctx.fillText("100", 12, pad + 4);
+
+    const innerW = w - 2 * pad;
+    const innerH = h - 2 * pad;
+    let runBest = 0;
+    let runWorst = 100;
+
+    if (mode === "avg") {
+      const n = pcts.length;
+      const bw = Math.max(4, innerW / n - 3);
+      pcts.forEach((p, i) => {
+        const x = pad + (i * innerW) / n + 2;
+        const bh = (p / 100) * innerH;
+        ctx.fillStyle = "rgba(99,102,241,0.75)";
+        ctx.fillRect(x, h - pad - bh, bw, bh);
+      });
+    } else if (mode === "best") {
+      ctx.strokeStyle = "rgba(74,222,128,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      pcts.forEach((p, i) => {
+        runBest = Math.max(runBest, p);
+        const x = pad + (i / Math.max(pcts.length - 1, 1)) * innerW;
+        const y = h - pad - (runBest / 100) * innerH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    } else if (mode === "worst") {
+      ctx.strokeStyle = "rgba(248,113,113,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      pcts.forEach((p, i) => {
+        runWorst = i === 0 ? p : Math.min(runWorst, p);
+        const x = pad + (i / Math.max(pcts.length - 1, 1)) * innerW;
+        const y = h - pad - (runWorst / 100) * innerH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+  }
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn";
+  close.textContent = "Закрити";
+  close.style.marginTop = "12px";
+  close.onclick = () => overlay.remove();
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove();
+  };
+  box.appendChild(canvas);
+  box.appendChild(close);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
 function renderResultsView(container) {
   const attempts = window.state.attempts || [];
 
-  const totalAttempts = attempts.length;
-  let avgPercent = 0;
-  let bestPercent = 0;
-  let worstPercent = totalAttempts > 0 ? 100 : 0;
+  const computeStats = (list) => {
+    const totalAttempts = list.length;
+    let avgPercent = 0;
+    let bestPercent = 0;
+    let worstPercent = totalAttempts > 0 ? 100 : 0;
+    list.forEach((a) => {
+      const pct = a.score.maxPoints > 0 ? Math.round((a.score.earnedPoints / a.score.maxPoints) * 100) : 0;
+      avgPercent += pct;
+      if (pct > bestPercent) bestPercent = pct;
+      if (pct < worstPercent) worstPercent = pct;
+    });
+    if (totalAttempts > 0) avgPercent = Math.round(avgPercent / totalAttempts);
+    return { totalAttempts, avgPercent, bestPercent, worstPercent };
+  };
 
-  attempts.forEach(a => {
-    const pct = a.score.maxPoints > 0 ? Math.round((a.score.earnedPoints / a.score.maxPoints) * 100) : 0;
-    avgPercent += pct;
-    if (pct > bestPercent) bestPercent = pct;
-    if (pct < worstPercent) worstPercent = pct;
-  });
-  if (totalAttempts > 0) avgPercent = Math.round(avgPercent / totalAttempts);
+  const initial = computeStats(attempts);
+  const totalAttempts = initial.totalAttempts;
+  let avgPercent = initial.avgPercent;
+  let bestPercent = initial.bestPercent;
+  let worstPercent = initial.worstPercent;
 
   container.innerHTML = `
     <div class="test-results-stats">
-      <div class="test-stat-card">
+      <div class="test-stat-card test-stat-chart-trigger" data-res-chart="count" title="Діаграма: кількість спроб" style="cursor:pointer;">
         <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(99,102,241,0.05));color:var(--accent);">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
         </div>
-        <div><div class="test-stat-value">${totalAttempts}</div><div class="test-stat-label">Спроб</div></div>
+        <div><div class="test-stat-value" id="res-stat-count-val">${totalAttempts}</div><div class="test-stat-label">Спроб</div></div>
       </div>
-      <div class="test-stat-card">
+      <div class="test-stat-card test-stat-chart-trigger" data-res-chart="avg" title="Діаграма: розподіл %" style="cursor:pointer;">
         <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));color:#3b82f6;">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
         </div>
-        <div><div class="test-stat-value">${avgPercent}%</div><div class="test-stat-label">Середній бал</div></div>
+        <div><div class="test-stat-value" id="res-stat-avg-val">${avgPercent}%</div><div class="test-stat-label">Середній бал</div></div>
       </div>
-      <div class="test-stat-card">
+      <div class="test-stat-card test-stat-chart-trigger" data-res-chart="best" title="Діаграма: найкращий результат у часі" style="cursor:pointer;">
         <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(74,222,128,0.15),rgba(74,222,128,0.05));color:var(--grade-10);">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01z"/></svg>
         </div>
-        <div><div class="test-stat-value">${bestPercent}%</div><div class="test-stat-label">Найкращий</div></div>
+        <div><div class="test-stat-value" id="res-stat-best-val">${bestPercent}%</div><div class="test-stat-label">Найкращий</div></div>
       </div>
-      <div class="test-stat-card">
+      <div class="test-stat-card test-stat-chart-trigger" data-res-chart="worst" title="Діаграма: найнижчий результат у часі" style="cursor:pointer;">
         <div class="test-stat-icon" style="background:linear-gradient(135deg,rgba(248,113,113,0.15),rgba(248,113,113,0.05));color:var(--grade-1);">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>
         </div>
-        <div><div class="test-stat-value">${worstPercent}%</div><div class="test-stat-label">Найнижчий</div></div>
+        <div><div class="test-stat-value" id="res-stat-worst-val">${worstPercent}%</div><div class="test-stat-label">Найнижчий</div></div>
       </div>
     </div>
 
@@ -641,8 +824,8 @@ function renderResultsView(container) {
             <th>Тест</th>
             <th>Учень</th>
             <th>Дата</th>
-            <th>Бали</th>
-            <th>%</th>
+            <th class="test-stat-chart-trigger" data-res-chart="avg" title="Діаграма" style="cursor:pointer;">Бали</th>
+            <th class="test-stat-chart-trigger" data-res-chart="avg" title="Діаграма %" style="cursor:pointer;">%</th>
             <th style="width: 160px;">Дії</th>
           </tr>
         </thead>
@@ -667,11 +850,17 @@ function renderResultsView(container) {
     if (filterTest) filtered = filtered.filter(a => a.testTitle === filterTest);
     if (filterStudent) filtered = filtered.filter(a => (a.studentName || "").toLowerCase().includes(filterStudent));
 
-    filtered.sort((a, b) => {
-      const da = new Date(a.date.split(',')[0].split('.').reverse().join('-'));
-      const db = new Date(b.date.split(',')[0].split('.').reverse().join('-'));
-      return db - da;
-    });
+    filtered.sort((a, b) => attemptTimeMs(b) - attemptTimeMs(a));
+
+    const st = computeStats(filtered);
+    const setStat = (id, v) => {
+      const el = window.$(id);
+      if (el) el.textContent = v;
+    };
+    setStat("#res-stat-count-val", String(st.totalAttempts));
+    setStat("#res-stat-avg-val", st.totalAttempts ? `${st.avgPercent}%` : "0%");
+    setStat("#res-stat-best-val", st.totalAttempts ? `${st.bestPercent}%` : "0%");
+    setStat("#res-stat-worst-val", st.totalAttempts ? `${st.worstPercent}%` : "0%");
 
     if (filtered.length === 0) {
       tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);">Результатів не знайдено.</td></tr>`;
@@ -682,10 +871,11 @@ function renderResultsView(container) {
       const pct = attempt.score.maxPoints > 0 ? Math.round((attempt.score.earnedPoints / attempt.score.maxPoints) * 100) : 0;
       const pctColor = pct >= 75 ? 'var(--grade-10)' : pct >= 50 ? 'var(--grade-7)' : 'var(--grade-1)';
       const tr = document.createElement("tr");
+      const dispDate = formatAttemptDisplayDate(attempt);
       tr.innerHTML = `
         <td>${window.esc(attempt.testTitle)}</td>
         <td>${window.esc(attempt.studentName)}</td>
-        <td style="font-size:13px;">${window.esc(attempt.date)}</td>
+        <td style="font-size:13px;">${window.esc(dispDate)}</td>
         <td>${attempt.score.earnedPoints} / ${attempt.score.maxPoints}</td>
         <td style="font-weight:700;color:${pctColor};">${pct}%</td>
         <td>
@@ -717,6 +907,20 @@ function renderResultsView(container) {
       };
 
       tbody.appendChild(tr);
+    });
+
+    const chartTitles = {
+      count: "Кількість спроб (з урахуванням фільтра)",
+      avg: "Відсотки за спробами (фільтр)",
+      best: "Найкращий результат у часі (фільтр)",
+      worst: "Найнижчий результат у часі (фільтр)",
+    };
+    window.$$(".test-stat-chart-trigger", container).forEach((el) => {
+      el.onclick = (ev) => {
+        ev.stopPropagation();
+        const mode = el.dataset.resChart || "avg";
+        showAttemptsChartModal(filtered, mode, chartTitles[mode] || chartTitles.avg);
+      };
     });
   };
 
@@ -1558,7 +1762,9 @@ function openTestReviewTab(attempt) {
           <div class="review-meta">
             <h3>${window.esc(attempt.testTitle)}</h3>
             <p><b>Учень:</b> ${window.esc(attempt.studentName)}</p>
-            <p><b>Дата:</b> ${window.esc(attempt.date)}</p>
+            ${attempt.guestAge != null ? `<p><b>Вік:</b> ${window.esc(String(attempt.guestAge))}</p>` : ""}
+            ${attempt.guestGrade ? `<p><b>Клас/курс:</b> ${window.esc(attempt.guestGrade)}</p>` : ""}
+            <p><b>Дата:</b> ${window.esc(formatAttemptDisplayDate(attempt))}</p>
             <p>Правильних: ${score.correctCount} з ${score.totalQuestions}</p>
           </div>
           <button class="btn ghost" id="review-close-btn">

@@ -43,6 +43,19 @@ async function validateTestAccess(telegramUserId, testUuid) {
   return r.rows[0] || null;
 }
 
+/** Доступ за відкритим посиланням (без учня в журналі) */
+async function validateOpenTestInvite(inviteCode, testUuid) {
+  const r = await pool.query(
+    `SELECT t.id, t.external_id, t.title, t.payload_json, t.teacher_id
+     FROM invites i
+     JOIN tests t ON t.id = i.test_id AND t.teacher_id = i.teacher_id
+     WHERE i.code = $1 AND i.test_id = $2::uuid AND t.published_telegram = true
+     AND (i.expires_at IS NULL OR i.expires_at > now())`,
+    [inviteCode, testUuid]
+  );
+  return r.rows[0] || null;
+}
+
 async function getInviteByCode(code) {
   const r = await pool.query(
     `SELECT i.*, c.name AS class_name FROM invites i
@@ -120,6 +133,7 @@ module.exports = {
   getStudentByTelegram,
   getAvailableTests,
   validateTestAccess,
+  validateOpenTestInvite,
   getInviteByCode,
   bindStudentTelegram,
   findStudentInClassByName,

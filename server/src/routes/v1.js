@@ -313,11 +313,7 @@ router.delete("/assignments/:id", async (req, res) => {
 /** POST /api/v1/invites */
 router.post("/invites", async (req, res) => {
   const tid = req.teacher.id;
-  const { classId, studentId, expiresInDays } = req.body || {};
-  if (!classId && !studentId) {
-    res.status(400).json({ error: "Потрібен classId або studentId" });
-    return;
-  }
+  const { classId, studentId, testExternalId, expiresInDays } = req.body || {};
   const code = crypto.randomBytes(5).toString("base64url").replace(/=/g, "").slice(0, 10);
   let expiresAt = null;
   if (typeof expiresInDays === "number" && expiresInDays > 0) {
@@ -325,6 +321,29 @@ router.post("/invites", async (req, res) => {
     expiresAt.setDate(expiresAt.getDate() + expiresInDays);
   }
   try {
+    if (testExternalId && String(testExternalId).trim()) {
+      const tr = await pool.query(`SELECT id FROM tests WHERE teacher_id = $1 AND external_id = $2`, [
+        tid,
+        String(testExternalId).trim(),
+      ]);
+      if (tr.rows.length === 0) {
+        res.status(404).json({ error: "Тест не знайдено" });
+        return;
+      }
+      const testId = tr.rows[0].id;
+      await pool.query(
+        `INSERT INTO invites (teacher_id, class_id, student_id, test_id, code, expires_at) VALUES ($1, NULL, NULL, $2, $3, $4)`,
+        [tid, testId, code, expiresAt]
+      );
+      const botUsername = process.env.TELEGRAM_BOT_USERNAME || "your_bot";
+      const link = `https://t.me/${botUsername}?start=invite_${code}`;
+      res.json({ code, link });
+      return;
+    }
+    if (!classId && !studentId) {
+      res.status(400).json({ error: "Потрібен classId, studentId або testExternalId" });
+      return;
+    }
     if (studentId) {
       const sr = await pool.query(
         `SELECT s.id, s.class_id FROM students s JOIN classes c ON c.id = s.class_id WHERE c.teacher_id = $1 AND s.id = $2`,
