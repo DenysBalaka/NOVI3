@@ -222,18 +222,152 @@ async function finishTest(ctx, session) {
   clearSession(session.chatId);
 }
 
-async function showTestPicker(ctx) {
+async function notifyTeachersFailedSelfLink(ctx, { className, fullName, reason, telegramUserId, username }) {
+  const chatIds = await Q.getTeacherNotifyChatIdsForClassName(className);
+  const uname = username ? `@${username}` : "—";
+  const msg =
+    `TeacherJournal: не вдалося автоматично прив’язати учня.\n\n` +
+    `Клас: ${className}\n` +
+    `ПІБ (як ввів учень): ${fullName}\n` +
+    `Telegram: ${uname} (id: ${telegramUserId})\n` +
+    `Причина: ${reason}\n\n` +
+    `Перевірте журнал або додайте прив’язку вручну в додатку.`;
+  for (const chatId of chatIds) {
+    try {
+      await ctx.telegram.sendMessage(chatId, msg);
+    } catch (e) {
+      console.error("[notify teacher]", e.message);
+    }
+  }
+}
+
+async function beginSelfLinkFlow(ctx) {
   const chatId = ctx.chat.id;
   clearSession(chatId);
-  const st = await Q.getStudentByTelegram(chatId);
-  if (!st) {
-    await ctx.reply(
-      "Ваш Telegram ще не прив’язано до класу.\n\n" +
-        "Попросіть у вчителя посилання-запрошення або щоб він додав ваш ідентифікатор у журналі.",
-      replyMainMenu()
-    );
+  const s = getSession(chatId);
+  s.step = "link_class";
+  s.chatId = chatId;
+  await ctx.reply(
+    "Вітаємо! Щоб бачити тести, прив’яжіть цей Telegram до журналу.\n\n" +
+      "<b>Крок 1 з 2:</b> введіть <b>назву класу</b> так само, як у вчителя в журналі (наприклад: 10-А).",
+    { parse_mode: "HTML", ...replyMainMenu() }
+  );
+}
+
+async function processSelfLinkName(ctx, s, fullNameText) {
+  const chatId = ctx.chat.id;
+  const className = s.pendingClassName || "";
+  const fullName = fullNameText.trim();
+  if (!fullName) {
+    await ctx.reply("Введіть прізвище та ім'я одним рядком.");
     return;
   }
+
+  const rows = await Q.findStudentsByClassAndFullName(className, fullName);
+  const unlinked = rows.filter((r) => r.telegram_user_id == null);
+
+  if (unlinked.length === 1) {
+    try {
+      const ok = await Q.bindStudentTelegram(unlinked[0].id, chatId, ctx.from?.username || null);
+      if (!ok) {
+        await notifyTeachersFailedSelfLink(ctx, {
+          className,
+          fullName,
+          reason: "запис учня вже прив’язаний до іншого Telegram або недоступний",
+          telegramUserId: chatId,
+          username: ctx.from?.username,
+        });
+        clearSession(chatId);
+        await ctx.reply(
+          "Не вдалося завершити прив’язку. Вчителя повідомлено. Зверніться до класного керівника.",
+          replyMainMenu()
+        );
+        return;
+      }
+      clearSession(chatId);
+      await ctx.reply(
+        "Вас прив’язано до журналу. Натисніть «Обрати тест» внизу або надішліть /start.",
+        replyMainMenu()
+      );
+    } catch (e) {
+      if (e.code === "23505") {
+        await notifyTeachersFailedSelfLink(ctx, {
+          className,
+          fullName,
+          reason: "цей Telegram уже використовується в системі для іншого учня",
+          telegramUserId: chatId,
+          username: ctx.from?.username,
+        });
+      } else {
+        console.error(e);
+      }
+      clearSession(chatId);
+      await ctx.reply(
+        "Помилка прив’язки. Вчителя могли сповістити. Зверніться до вчителя.",
+        replyMainMenu()
+      );
+    }
+    return;
+  }
+
+  let reason = "не знайдено учня з таким класом і ПІБ у жодному журналі";
+  if (rows.length > 0 && unlinked.length === 0) {
+    reason = "учень з таким ПІБ у цьому класі вже прив’язаний до іншого Telegram";
+  } else if (unlinked.length > 1) {
+    reason = "знайдено кілька однакових записів у різних школах — потрібне посилання від вчителя";
+  }
+
+  await notifyTeachersFailedSelfLink(ctx, {
+    className,
+    fullName,
+    reason,
+    telegramUserId: chatId,
+    username: ctx.from?.username,
+  });
+  clearSession(chatId);
+  const notified = (await Q.getTeacherNotifyChatIdsForClassName(className)).length > 0;
+  await ctx.reply(
+    "Не вдалося автоматично вас додати до журналу." +
+      (notified
+        ? " Вчителів з таким класом (які вказали Telegram для сповіщень) повідомлено."
+        : "") +
+      "\n\nЗверніться до вчителя або перевірте написання класу та ПІБ.",
+    replyMainMenu()
+  );
+}
+
+async function handleStartCommand(ctx) {
+  const chatId = ctx.chat.id;
+  const s0 = getSession(chatId);
+  if (
+    s0.test &&
+    (s0.step === "question" || s0.step === "wait_check" || s0.step === "wait_text")
+  ) {
+    await ctx.reply("Ви проходите тест. Щоб скасувати: /cancel");
+    return;
+  }
+
+  const raw = ctx.message.text || "";
+  const parts = raw.trim().split(/\s+/);
+  const payload = parts.length > 1 ? parts.slice(1).join(" ") : "";
+  if (payload && (await processStartPayload(ctx, payload))) return;
+  const st = await Q.getStudentByTelegram(chatId);
+  if (st) {
+    await showTestPicker(ctx);
+  } else {
+    await beginSelfLinkFlow(ctx);
+  }
+}
+
+async function showTestPicker(ctx) {
+  const chatId = ctx.chat.id;
+  const st = await Q.getStudentByTelegram(chatId);
+  if (!st) {
+    await beginSelfLinkFlow(ctx);
+    return;
+  }
+
+  clearSession(chatId);
 
   const list = await Q.getAvailableTests(chatId);
   if (list.length === 0) {
@@ -319,12 +453,16 @@ function createBot() {
   }
   const bot = new Telegraf(token);
 
-  bot.command("start", async (ctx) => {
-    const raw = ctx.message.text || "";
-    const parts = raw.trim().split(/\s+/);
-    const payload = parts.length > 1 ? parts.slice(1).join(" ") : "";
-    if (payload && (await processStartPayload(ctx, payload))) return;
-    await showTestPicker(ctx);
+  bot.command("start", (ctx) => handleStartCommand(ctx));
+
+  bot.hears(/^start$/i, async (ctx, next) => {
+    const t = (ctx.message.text || "").trim();
+    if (t.startsWith("/")) return next();
+    const s = getSession(ctx.chat.id);
+    if (["link_class", "link_name", "invite_class_name"].includes(s.step)) {
+      return next();
+    }
+    await handleStartCommand(ctx);
   });
 
   bot.command("cancel", async (ctx) => {
@@ -420,6 +558,25 @@ function createBot() {
 
     const s = getSession(chatId);
 
+    if (s.step === "link_class") {
+      if (!text) {
+        await ctx.reply("Введіть назву класу текстом.");
+        return;
+      }
+      s.pendingClassName = text.trim();
+      s.step = "link_name";
+      await ctx.reply(
+        "<b>Крок 2 з 2:</b> введіть <b>прізвище та ім'я</b> одним рядком — як у класному журналі вчителя.",
+        { parse_mode: "HTML", ...replyMainMenu() }
+      );
+      return;
+    }
+
+    if (s.step === "link_name") {
+      await processSelfLinkName(ctx, s, text);
+      return;
+    }
+
     if (s.step === "invite_class_name") {
       const matches = await Q.findStudentInClassByName(s.inviteClassId, text);
       if (matches.length === 0) {
@@ -446,6 +603,11 @@ function createBot() {
     }
 
     if (s.step === "idle") {
+      const linked = await Q.getStudentByTelegram(chatId);
+      if (!linked) {
+        await beginSelfLinkFlow(ctx);
+        return;
+      }
       await ctx.reply(`Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або надішліть /start, щоб обрати тест.`, replyMainMenu());
       return;
     }

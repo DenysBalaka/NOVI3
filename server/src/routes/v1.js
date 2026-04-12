@@ -27,7 +27,36 @@ router.post("/register", async (req, res) => {
 router.use(authTeacher);
 
 router.get("/me", (req, res) => {
-  res.json({ id: req.teacher.id, displayName: req.teacher.display_name, school: req.teacher.school });
+  res.json({
+    id: req.teacher.id,
+    displayName: req.teacher.display_name,
+    school: req.teacher.school,
+    telegramNotifyChatId: req.teacher.telegram_notify_chat_id ?? null,
+  });
+});
+
+/** PATCH /api/v1/me/telegram-notify — куди слати сповіщення про невдалу самоприв’язку учнів */
+router.patch("/me/telegram-notify", async (req, res) => {
+  const tid = req.teacher.id;
+  const { telegramNotifyChatId } = req.body || {};
+  const raw =
+    telegramNotifyChatId != null && String(telegramNotifyChatId).trim() !== ""
+      ? String(telegramNotifyChatId).trim()
+      : null;
+  try {
+    if (raw == null) {
+      await pool.query(`UPDATE teachers SET telegram_notify_chat_id = NULL WHERE id = $1::uuid`, [tid]);
+    } else {
+      await pool.query(
+        `UPDATE teachers SET telegram_notify_chat_id = $2::bigint WHERE id = $1::uuid`,
+        [tid, raw]
+      );
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Помилка збереження" });
+  }
 });
 
 /** GET /api/v1/roster — поточні класи та учні з UUID (після sync) */

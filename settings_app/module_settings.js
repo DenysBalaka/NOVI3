@@ -187,6 +187,21 @@ export function renderSettings() {
           <p style="font-size:13px;color:var(--text-secondary);margin:12px 0 0;line-height:1.45;">
             Після підключення відкрийте <b>Тести → Telegram</b>: синхронізація класів, публікація тестів і результати.
           </p>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border-color);">
+            <h4 style="margin:0 0 8px;font-size:15px;">Сповіщення в Telegram</h4>
+            <p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;line-height:1.45;">
+              Якщо учень не зможе автоматично прив’язатися до журналу в боті, бот надішле вам повідомлення на вказаний акаунт.
+              Свій числовий id можна подивитися в Telegram у бота <code>@userinfobot</code> (поле «Id»).
+            </p>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
+              <div class="form-group" style="min-width:200px;margin:0;">
+                <label for="teacher-tg-notify-id">Ваш Telegram user id</label>
+                <input type="text" class="input" id="teacher-tg-notify-id" placeholder="наприклад 123456789" autocomplete="off">
+              </div>
+              <button type="button" class="btn" id="btn-save-tg-notify" ${window.isTeacherCloudConnected() ? "" : "disabled"}>Зберегти для сповіщень</button>
+            </div>
+            <p id="tg-notify-feedback" class="settings-feedback" style="margin-top:8px;"></p>
+          </div>
         </div>
       </div>
 
@@ -371,6 +386,45 @@ export function renderSettings() {
       }
     };
   }
+
+  (async () => {
+    const notifyInput = window.$("#teacher-tg-notify-id");
+    const notifyFb = window.$("#tg-notify-feedback");
+    const notifyBtn = window.$("#btn-save-tg-notify");
+    if (window.isTeacherCloudConnected && window.isTeacherCloudConnected() && notifyInput) {
+      try {
+        const me = await window.callCloudApi("GET", "me");
+        if (me.telegramNotifyChatId != null && me.telegramNotifyChatId !== "") {
+          notifyInput.value = String(me.telegramNotifyChatId);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (notifyBtn) {
+      notifyBtn.onclick = async () => {
+        if (!window.isTeacherCloudConnected()) {
+          await window.showCustomAlert("Хмара", "Спочатку підключіть хмару.");
+          return;
+        }
+        const v = (notifyInput && notifyInput.value.trim()) || "";
+        try {
+          await window.callCloudApi("PATCH", "me/telegram-notify", {
+            telegramNotifyChatId: v === "" ? null : v,
+          });
+          if (notifyFb) {
+            notifyFb.textContent = "Збережено.";
+            notifyFb.style.color = "var(--grade-10)";
+            setTimeout(() => {
+              notifyFb.textContent = "";
+            }, 2500);
+          }
+        } catch (e) {
+          await window.showCustomAlert("Помилка", e.message || String(e));
+        }
+      };
+    }
+  })();
 
   const btnCloudDisconnect = window.$("#btn-cloud-disconnect");
   if (btnCloudDisconnect) {

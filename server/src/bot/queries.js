@@ -81,6 +81,36 @@ async function insertAttempt({ teacherId, testId, studentId, telegramUserId, tel
   );
 }
 
+/** Усі збіги клас + ПІБ (для самоприв’язки; можуть бути різні вчителі) */
+async function findStudentsByClassAndFullName(className, fullName) {
+  const cn = String(className || "").trim().toLowerCase();
+  const fn = String(fullName || "").trim().toLowerCase();
+  if (!cn || !fn) return [];
+  const r = await pool.query(
+    `SELECT s.id, s.full_name, s.class_id, s.telegram_user_id, c.name AS class_name, c.teacher_id
+     FROM students s
+     JOIN classes c ON c.id = s.class_id
+     WHERE LOWER(TRIM(c.name)) = $1 AND LOWER(TRIM(s.full_name)) = $2`,
+    [cn, fn]
+  );
+  return r.rows;
+}
+
+/** Вчителі з увімкненими сповіщеннями, у яких є клас з такою назвою */
+async function getTeacherNotifyChatIdsForClassName(className) {
+  const cn = String(className || "").trim().toLowerCase();
+  if (!cn) return [];
+  const r = await pool.query(
+    `SELECT DISTINCT t.telegram_notify_chat_id AS chat_id
+     FROM teachers t
+     JOIN classes c ON c.teacher_id = t.id
+     WHERE LOWER(TRIM(c.name)) = $1
+     AND t.telegram_notify_chat_id IS NOT NULL`,
+    [cn]
+  );
+  return r.rows.map((row) => row.chat_id).filter((id) => id != null);
+}
+
 module.exports = {
   getStudentByTelegram,
   getAvailableTests,
@@ -88,5 +118,7 @@ module.exports = {
   getInviteByCode,
   bindStudentTelegram,
   findStudentInClassByName,
+  findStudentsByClassAndFullName,
+  getTeacherNotifyChatIdsForClassName,
   insertAttempt,
 };

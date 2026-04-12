@@ -125,8 +125,9 @@ function renderTelegramTestsView(container) {
   container.innerHTML = `
     <div class="config-box" style="flex-direction:column;align-items:stretch;gap:12px;">
       <p style="margin:0;color:var(--text-secondary);font-size:14px;line-height:1.5;">
-        <b>Хмарний режим:</b> один бот для всіх учителів (Render). Налаштуйте URL та API-ключ у
-        <b>Налаштуваннях → Telegram (хмара)</b>, натисніть «Синхронізувати класи», опублікуйте тести та призначте доступ класу або конкретному учню.
+        <b>Хмарний режим:</b> учні заходять у бота (<code>/start</code> або слово <code>start</code>), вводять <b>клас</b> і <b>ПІБ</b> як у журналі — прив’язка відбувається автоматично.
+        Вчитель у <b>Налаштуваннях</b> може вказати Telegram id для сповіщень, якщо прив’язка не вдалася.
+        Синхронізуйте класи, опублікуйте тести та призначте доступ класу або учню.
       </p>
       <div style="padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-light);border:1px solid var(--border-color);font-size:13px;">
         Хмара: ${cloudOk
@@ -588,7 +589,7 @@ function renderTestsListView(container) {
             <th>Клас</th>
             <th>Предмет</th>
             <th>Питань</th>
-            <th style="width: 340px;">Дії</th>
+            <th style="width: 280px;">Дії</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -794,7 +795,6 @@ function populateSavedTestsList() {
         <td>${(test.questions || []).length}</td>
         <td>
           <div class="form-buttons-group" style="gap: 5px;">
-            <button class="btn btn-start-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Запустити</button>
             <button class="btn ghost btn-edit-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Редагувати</button>
             <button class="btn ghost btn-dup-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Дублювати</button>
             <button class="btn danger btn-del-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Видалити</button>
@@ -803,13 +803,6 @@ function populateSavedTestsList() {
       `;
 
       window.$(".btn-edit-test", tr).onclick = () => openTestEditorTab(test.id);
-
-      window.$(".btn-start-test", tr).onclick = async () => {
-        const result = await window.showTestStartDialog(test.title, window.state.students, test.className);
-        if (!result.canceled) {
-          window.renderRunTest(test.id, result.studentName, result.timeLimitInMinutes);
-        }
-      };
 
       window.$(".btn-dup-test", tr).onclick = () => {
         const copy = JSON.parse(JSON.stringify(test));

@@ -4,6 +4,12 @@ export function renderEditorPage() {
   window.areaEl.innerHTML = `
     <h2>Учні</h2>
     <p>Керуйте вашими класами, учнями та предметами.</p>
+    <div class="config-box" style="margin-bottom:16px;flex-direction:column;align-items:stretch;">
+      <p style="margin:0;font-size:14px;color:var(--text-secondary);line-height:1.5;">
+        <b>Telegram:</b> учні можуть самі прив’язати акаунт у боті: після <code>/start</code> вони вводять <b>назву класу</b> і <b>ПІБ</b> так само, як у списку нижче.
+        Якщо не вийде, вам може прийти сповіщення (якщо збережено «Telegram для сповіщень» у Налаштуваннях) — тоді перевірте написання або додайте прив’язку вручну в розділі «Тести → Telegram».
+      </p>
+    </div>
     <div class="editor-layout">
       <div class="editor-column">
         <h3>Класи</h3>
