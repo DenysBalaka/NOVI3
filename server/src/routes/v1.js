@@ -375,7 +375,7 @@ router.get("/attempts", async (req, res) => {
   }
 });
 
-/** PATCH учень — ручна прив’язка Telegram */
+/** PATCH учень — прив’язка Telegram (бот, інтеграції; UI десктопу не використовує) */
 router.patch("/students/:id/telegram", async (req, res) => {
   const tid = req.teacher.id;
   const studentId = req.params.id;

@@ -100,7 +100,8 @@ async function presentQuestion(ctx, session) {
       return presentQuestion(ctx, session);
     }
     const optLines = opts.map((opt, i) => `${i + 1}) ${escHtml((opt && opt.text) || "—")}`).join("\n");
-    const instruct = `Варіанти:\n${optLines}\n\nВкажіть номери правильних відповідей через кому (наприклад: <code>1,3</code>). Нумерація з 1.`;
+    const instruct =
+      `Варіанти:\n${optLines}\n\nВкажіть номери обраних варіантів через кому (наприклад: <code>1,3</code>). Нумерація з 1.`;
     if (q.image) {
       await sendQuestionPhoto(ctx, header, q.image);
       await ctx.reply(instruct, { parse_mode: "HTML" });
@@ -135,6 +136,12 @@ async function presentQuestion(ctx, session) {
     session.matchingPairIdx = 0;
     session.matchingPicks = [];
     session.matchingRightsShuffled = shuffleArray(pairs.map((p) => p.right));
+    if (q.image) {
+      await sendQuestionPhoto(ctx, header, q.image);
+      session.matchingSkipQuestionTextInPair = true;
+    } else {
+      delete session.matchingSkipQuestionTextInPair;
+    }
     return presentMatchingPair(ctx, session);
   }
 
@@ -158,13 +165,15 @@ async function presentMatchingPair(ctx, session) {
     delete session.matchingPairIdx;
     delete session.matchingPicks;
     delete session.matchingRightsShuffled;
+    delete session.matchingSkipQuestionTextInPair;
     return presentQuestion(ctx, session);
   }
 
   const pair = pairs[pi];
   const rights = session.matchingRightsShuffled;
+  const qTextBlock = session.matchingSkipQuestionTextInPair ? "" : `${escHtml(q.text)}\n\n`;
   const caption =
-    `<b>Питання ${qi + 1}</b> (${pi + 1}/${total} — відповідність)\n${escHtml(q.text)}\n\n` +
+    `<b>Питання ${qi + 1}</b> (${pi + 1}/${total} — відповідність)\n${qTextBlock}` +
     `Ліва частина: <b>${escHtml(pair.left)}</b>\n\nОберіть відповідь справа:`;
   const kb = matchingKeyboard(qi, pi, rights);
   await ctx.reply(caption, { parse_mode: "HTML", ...kb });
@@ -231,7 +240,7 @@ async function notifyTeachersFailedSelfLink(ctx, { className, fullName, reason, 
     `ПІБ (як ввів учень): ${fullName}\n` +
     `Telegram: ${uname} (id: ${telegramUserId})\n` +
     `Причина: ${reason}\n\n` +
-    `Перевірте журнал або додайте прив’язку вручну в додатку.`;
+    `Перевірте журнал (ПІБ має збігатися) або надішліть учню посилання-запрошення з «Тести → Telegram».`;
   for (const chatId of chatIds) {
     try {
       await ctx.telegram.sendMessage(chatId, msg);

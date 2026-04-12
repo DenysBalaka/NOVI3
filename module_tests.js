@@ -74,6 +74,40 @@ async function pushTestToCloud(test) {
   });
 }
 
+async function refreshCloudRosterMapFromServer() {
+  const data = await window.callCloudApi("GET", "roster");
+  const byClassName = {};
+  for (const c of data.classes || []) {
+    const map = {};
+    for (const st of c.students || []) {
+      const name = st.full_name != null ? String(st.full_name).trim() : "";
+      if (name) map[name] = st.id;
+    }
+    byClassName[c.name] = { classId: c.id, studentsByName: map };
+  }
+  const roster = {};
+  for (const cname of window.state.classOrder || []) {
+    const srv = byClassName[cname];
+    if (!srv) continue;
+    roster[cname] = { classId: srv.classId, students: {} };
+    for (const entry of window.state.students[cname] || []) {
+      const fn =
+        typeof entry === "string"
+          ? entry
+          : entry && entry.fullName != null
+            ? String(entry.fullName)
+            : "";
+      const key = String(fn).trim();
+      if (!key) continue;
+      const sid = srv.studentsByName[key];
+      if (sid) roster[cname].students[key] = sid;
+    }
+  }
+  window.state.settings.cloudRosterMap = roster;
+  window.saveSettings();
+  return roster;
+}
+
 async function syncRosterToCloud() {
   const classes = window.state.classOrder.map((name, idx) => ({
     name,
@@ -84,9 +118,13 @@ async function syncRosterToCloud() {
     })).filter((x) => x.fullName.trim()),
   }));
   const data = await window.callCloudApi("POST", "roster/sync", { classes });
-  window.state.settings.cloudRosterMap = data.roster;
-  window.saveSettings();
-  return data.roster;
+  try {
+    return await refreshCloudRosterMapFromServer();
+  } catch (e) {
+    window.state.settings.cloudRosterMap = data.roster;
+    window.saveSettings();
+    return data.roster;
+  }
 }
 
 async function syncAttemptsFromCloud() {
@@ -169,32 +207,6 @@ function renderTelegramTestsView(container) {
 
     <div class="output-box" style="margin-top:16px;">
       <div class="output-box-header">
-        <h3>Ручна прив’язка Telegram (учень)</h3>
-      </div>
-      <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
-        <div class="form-group" style="min-width:180px;">
-          <label for="tg-man-class">Клас</label>
-          <select id="tg-man-class" class="input"></select>
-        </div>
-        <div class="form-group" style="min-width:200px;">
-          <label for="tg-man-student">Учень</label>
-          <select id="tg-man-student" class="input"></select>
-        </div>
-        <div class="form-group" style="min-width:140px;">
-          <label for="tg-man-userid">Telegram user id</label>
-          <input type="text" class="input" id="tg-man-userid" placeholder="123456789" autocomplete="off">
-        </div>
-        <div class="form-group" style="min-width:120px;">
-          <label for="tg-man-user">@username</label>
-          <input type="text" class="input" id="tg-man-user" placeholder="без @" autocomplete="off">
-        </div>
-        <button type="button" class="btn" id="tg-man-save" ${cloudOk ? "" : "disabled"}>Зберегти в хмарі</button>
-      </div>
-      <p style="margin:0 12px 12px;font-size:12px;color:var(--text-secondary);">Після збереження учень зможе бачити тести, призначені йому або класу.</p>
-    </div>
-
-    <div class="output-box" style="margin-top:16px;">
-      <div class="output-box-header">
         <h3>Посилання-запрошення</h3>
       </div>
       <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
@@ -235,13 +247,8 @@ function renderTelegramTestsView(container) {
     const roster = window.state.settings.cloudRosterMap || {};
     const classSel = window.$("#tg-pick-class");
     const studSel = window.$("#tg-pick-student");
-    const manClass = window.$("#tg-man-class");
-    const manStud = window.$("#tg-man-student");
-    [classSel, studSel, manClass, manStud].forEach((el) => {
-      if (el) el.innerHTML = "";
-    });
     if (classSel) classSel.innerHTML = '<option value="">— оберіть клас —</option>';
-    if (manClass) manClass.innerHTML = '<option value="">—</option>';
+    if (studSel) studSel.innerHTML = '<option value="">— спочатку клас у «Додати клас» —</option>';
     Object.keys(roster).sort().forEach((cname) => {
       const cid = roster[cname].classId;
       if (classSel) {
@@ -250,16 +257,7 @@ function renderTelegramTestsView(container) {
         o.textContent = cname;
         classSel.appendChild(o);
       }
-      if (manClass) {
-        const o2 = document.createElement("option");
-        o2.value = cid;
-        o2.textContent = cname;
-        o2.dataset.className = cname;
-        manClass.appendChild(o2);
-      }
     });
-    if (studSel) studSel.innerHTML = '<option value="">— спочатку клас у «Додати клас» —</option>';
-    if (manStud) manStud.innerHTML = '<option value="">—</option>';
   };
 
   const fillStudentsForClass = (classId, targetStudSel, roster) => {
@@ -337,23 +335,6 @@ function renderTelegramTestsView(container) {
   const pc = window.$("#tg-pick-class");
   if (pc) {
     pc.onchange = () => fillStudentsForClass(pc.value, window.$("#tg-pick-student"), rmap);
-  }
-  const mc = window.$("#tg-man-class");
-  if (mc) {
-    mc.onchange = () => {
-      const cid = mc.value;
-      const ms = window.$("#tg-man-student");
-      if (!cid || !ms) return;
-      ms.innerHTML = '<option value="">—</option>';
-      const cname = Object.keys(rmap).find((k) => rmap[k].classId === cid);
-      if (!cname || !rmap[cname].students) return;
-      Object.entries(rmap[cname].students).forEach(([name, sid]) => {
-        const o = document.createElement("option");
-        o.value = sid;
-        o.textContent = name;
-        ms.appendChild(o);
-      });
-    };
   }
 
   const invMc = window.$("#tg-inv-class");
@@ -469,30 +450,6 @@ function renderTelegramTestsView(container) {
         studentId: sid,
       });
       await refreshAssignmentList();
-    } catch (e) {
-      await window.showCustomAlert("Помилка", e.message || String(e));
-    }
-  };
-
-  window.$("#tg-man-save").onclick = async () => {
-    const sid = window.$("#tg-man-student") && window.$("#tg-man-student").value;
-    const uid = window.$("#tg-man-userid") && window.$("#tg-man-userid").value.trim();
-    const un = window.$("#tg-man-user") && window.$("#tg-man-user").value.trim();
-    if (!sid) {
-      await window.showCustomAlert("Telegram", "Оберіть учня.");
-      return;
-    }
-    if (!uid && !un) {
-      await window.showCustomAlert("Telegram", "Введіть user id або username.");
-      return;
-    }
-    try {
-      const body = {};
-      if (uid) body.telegramUserId = uid.replace(/\s+/g, "");
-      if (un) body.telegramUsername = un.replace(/^@/, "");
-      await window.callCloudApi("PATCH", `students/${sid}/telegram`, body);
-      msgEl.textContent = "Прив’язку збережено в хмарі.";
-      msgEl.style.color = "var(--grade-10)";
     } catch (e) {
       await window.showCustomAlert("Помилка", e.message || String(e));
     }
