@@ -11,6 +11,50 @@ function shuffleArray(arr) {
   return a;
 }
 
+async function copyInviteLinkToClipboard(url) {
+  const t = String(url || "").trim();
+  if (!t) return false;
+  try {
+    await navigator.clipboard.writeText(t);
+    return true;
+  } catch (_) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = t;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;left:-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+function setOpenInviteLinkElement(outEl, url, msgEl) {
+  if (!outEl) return;
+  const u = String(url || "").trim();
+  outEl.innerHTML = "";
+  if (!u) return;
+  const a = document.createElement("a");
+  a.href = u;
+  a.textContent = u;
+  a.style.cssText = "color:var(--accent);cursor:pointer;word-break:break-all;";
+  a.title = "Натисніть, щоб скопіювати посилання";
+  a.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const ok = await copyInviteLinkToClipboard(u);
+    if (msgEl) {
+      msgEl.textContent = ok ? "Посилання скопійовано в буфер обміну." : "Не вдалося скопіювати.";
+      msgEl.style.color = ok ? "var(--grade-10)" : "var(--danger)";
+    }
+  });
+  outEl.appendChild(a);
+}
+
 // === 1. ГОЛОВНА СТОРІНКА (СПИСОК ТЕСТІВ + РЕЗУЛЬТАТИ) ===
 
 let currentTestsView = 'tests';
@@ -127,7 +171,7 @@ async function syncRosterToCloud() {
   }
 }
 
-async function syncAttemptsFromCloud() {
+export async function syncAttemptsFromCloud() {
   const since = window.state.settings.cloudLastAttemptSync || null;
   const q = since ? `attempts?since=${encodeURIComponent(since)}` : "attempts";
   const data = await window.callCloudApi("GET", q);
@@ -173,6 +217,7 @@ function renderTelegramTestsView(container) {
         <b>Хмарний режим:</b> учні заходять у бота (<code>/start</code> або слово <code>start</code>), вводять <b>клас</b> і <b>ПІБ</b> як у журналі — прив’язка відбувається автоматично.
         Вчитель у <b>Налаштуваннях</b> може вказати Telegram id для сповіщень, якщо прив’язка не вдалася.
         Синхронізуйте класи, опублікуйте тести та призначте доступ класу або учню.
+        Якщо хмару налаштовано, <b>результати спроб з бота підтягуються автоматично</b> у вкладку «Результати».
       </p>
       <div style="padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-light);border:1px solid var(--border-color);font-size:13px;">
         Хмара: ${cloudOk
@@ -184,7 +229,6 @@ function renderTelegramTestsView(container) {
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;">
         <button type="button" class="btn" id="tg-sync-roster" ${cloudOk ? "" : "disabled"}>Синхронізувати класи та учнів</button>
-        <button type="button" class="btn" id="tg-pull-attempts" ${cloudOk ? "" : "disabled"}>Завантажити результати з хмари</button>
       </div>
       <p id="tg-sync-msg" style="margin:0;font-size:13px;color:var(--text-secondary);"></p>
     </div>
@@ -214,30 +258,19 @@ function renderTelegramTestsView(container) {
 
     <div class="output-box" style="margin-top:16px;">
       <div class="output-box-header">
-        <h3>Посилання-запрошення</h3>
+        <h3>Відкрите посилання</h3>
       </div>
+      <p style="margin:0 12px 8px;font-size:13px;color:var(--text-secondary);">
+        ПІБ, вік, клас учень вводить у чаті бота — без прив’язки до журналу. Оберіть тест і створіть посилання.
+      </p>
       <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
-        <div class="form-group" style="min-width:180px;">
-          <label for="tg-inv-class">Клас</label>
-          <select id="tg-inv-class" class="input"></select>
-        </div>
-        <div class="form-group" style="min-width:200px;">
-          <label for="tg-inv-student">Учень (для індивідуального)</label>
-          <select id="tg-inv-student" class="input"></select>
-        </div>
-        <button type="button" class="btn" id="tg-inv-create" ${cloudOk ? "" : "disabled"}>Створити посилання</button>
-      </div>
-      <p id="tg-inv-out" style="margin:0 12px 12px;font-size:13px;word-break:break-all;color:var(--accent);"></p>
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);">
         <div class="form-group" style="min-width:220px;">
-          <label for="tg-open-inv-test">Відкрите посилання (ПІБ, вік, клас у боті — без прив’язки до журналу)</label>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:8px;">
-            <select id="tg-open-inv-test" class="input" style="min-width:220px;"></select>
-            <button type="button" class="btn" id="tg-open-inv-create" ${cloudOk ? "" : "disabled"}>Створити посилання</button>
-          </div>
+          <label for="tg-open-inv-test">Тест</label>
+          <select id="tg-open-inv-test" class="input" style="min-width:220px;"></select>
         </div>
-        <p id="tg-open-inv-out" style="margin:8px 0 0;font-size:13px;word-break:break-all;color:var(--accent);"></p>
+        <button type="button" class="btn" id="tg-open-inv-create" ${cloudOk ? "" : "disabled"}>Створити посилання</button>
       </div>
+      <p id="tg-open-inv-out" style="margin:0 12px 12px;font-size:13px;word-break:break-all;color:var(--accent);"></p>
     </div>
 
     <div class="output-box" style="margin-top:16px;">
@@ -357,58 +390,6 @@ function renderTelegramTestsView(container) {
     pc.onchange = () => fillStudentsForClass(pc.value, window.$("#tg-pick-student"), rmap);
   }
 
-  const invMc = window.$("#tg-inv-class");
-  const invMs = window.$("#tg-inv-student");
-  if (invMc) {
-    invMc.innerHTML = '<option value="">—</option>';
-    Object.keys(rmap)
-      .sort()
-      .forEach((cname) => {
-        const cid = rmap[cname].classId;
-        const o = document.createElement("option");
-        o.value = cid;
-        o.textContent = cname;
-        invMc.appendChild(o);
-      });
-    invMc.onchange = () => {
-      if (!invMs) return;
-      invMs.innerHTML = '<option value="">— Увесь клас (за іменем)</option>';
-      const cid = invMc.value;
-      if (!cid) return;
-      const cname = Object.keys(rmap).find((k) => rmap[k].classId === cid);
-      if (!cname || !rmap[cname].students) return;
-      Object.entries(rmap[cname].students).forEach(([name, sid]) => {
-        const o = document.createElement("option");
-        o.value = sid;
-        o.textContent = name;
-        invMs.appendChild(o);
-      });
-    };
-  }
-
-  const invCreate = window.$("#tg-inv-create");
-  if (invCreate) {
-    invCreate.onclick = async () => {
-      const cid = invMc && invMc.value;
-      const sid = invMs && invMs.value;
-      const out = window.$("#tg-inv-out");
-      if (!cid) {
-        await window.showCustomAlert("Запрошення", "Оберіть клас.");
-        return;
-      }
-      try {
-        const body = sid ? { studentId: sid } : { classId: cid };
-        const data = await window.callCloudApi("POST", "invites", body);
-        if (out) {
-          out.textContent = data.link || "";
-          out.style.color = "var(--accent)";
-        }
-      } catch (e) {
-        await window.showCustomAlert("Помилка", e.message || String(e));
-      }
-    };
-  }
-
   window.$("#tg-sync-roster").onclick = async () => {
     msgEl.textContent = "Синхронізація…";
     try {
@@ -418,19 +399,6 @@ function renderTelegramTestsView(container) {
       rosterSelects();
       const r2 = window.state.settings.cloudRosterMap || {};
       if (pc && pc.value) fillStudentsForClass(pc.value, window.$("#tg-pick-student"), r2);
-    } catch (e) {
-      msgEl.textContent = e.message || String(e);
-      msgEl.style.color = "var(--danger)";
-    }
-  };
-
-  window.$("#tg-pull-attempts").onclick = async () => {
-    msgEl.textContent = "Завантаження…";
-    try {
-      const n = await syncAttemptsFromCloud();
-      msgEl.textContent = `Додано нових спроб: ${n}.`;
-      msgEl.style.color = "var(--grade-10)";
-      window.refreshTestsIfOpen();
     } catch (e) {
       msgEl.textContent = e.message || String(e);
       msgEl.style.color = "var(--danger)";
@@ -500,9 +468,14 @@ function renderTelegramTestsView(container) {
       }
       try {
         const data = await window.callCloudApi("POST", "invites", { testExternalId: tid });
-        if (out) {
-          out.textContent = data.link || "";
-          out.style.color = "var(--accent)";
+        const link = data.link || "";
+        setOpenInviteLinkElement(out, link, msgEl);
+        const copied = await copyInviteLinkToClipboard(link);
+        if (msgEl) {
+          msgEl.textContent = copied
+            ? "Посилання створено та скопійовано в буфер обміну."
+            : "Посилання створено. Натисніть на посилання нижче, щоб скопіювати.";
+          msgEl.style.color = "var(--grade-10)";
         }
       } catch (e) {
         await window.showCustomAlert("Помилка", e.message || String(e));
@@ -602,7 +575,7 @@ function renderTestsListView(container) {
             <th>Клас</th>
             <th>Предмет</th>
             <th>Питань</th>
-            <th style="width: 280px;">Дії</th>
+            <th style="width: 340px;">Дії</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -932,6 +905,61 @@ function renderResultsView(container) {
 
 // === СПИСОК ТЕСТІВ ===
 
+function openTestStudentPreview(test) {
+  const overlay = document.createElement("div");
+  overlay.style.cssText =
+    "position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.55);overflow:auto;padding:20px;";
+  const box = document.createElement("div");
+  box.style.cssText =
+    "max-width:720px;margin:0 auto;background:var(--bg-panel, #1e1e2e);border-radius:12px;padding:20px;border:1px solid var(--border-color);";
+  const title = window.esc(test.title || "Тест");
+  const qs = test.questions || [];
+  let blocks = "";
+  qs.forEach((q, qi) => {
+    const typ =
+      q.type === "radio"
+        ? "Один варіант"
+        : q.type === "check"
+          ? "Декілька варіантів"
+          : q.type === "text"
+            ? "Текст"
+            : q.type === "matching"
+              ? "Відповідність"
+              : window.esc(q.type || "");
+    blocks += `<div style="margin:14px 0;padding:12px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-light);">`;
+    blocks += `<div style="font-weight:600;margin-bottom:8px;">Питання ${qi + 1} · ${typ}</div>`;
+    blocks += `<div style="margin-bottom:8px;line-height:1.4;">${window.esc(q.text || "")}</div>`;
+    if (q.image) {
+      blocks += `<img src="${q.image}" alt="" style="max-width:100%;max-height:220px;border-radius:6px;margin-bottom:8px;">`;
+    }
+    if (q.type === "radio" || q.type === "check") {
+      (q.options || []).forEach((o, oi) => {
+        blocks += `<div style="padding:6px 10px;margin:4px 0;border-radius:6px;background:var(--bg-panel);font-size:14px;">${oi + 1}. ${window.esc((o && o.text) || "—")}</div>`;
+      });
+    } else if (q.type === "text") {
+      blocks += `<p style="margin:0;font-size:13px;color:var(--muted);">У боті учень надсилає відповідь текстом.</p>`;
+    } else if (q.type === "matching") {
+      (q.pairs || []).forEach((p) => {
+        blocks += `<div style="margin:6px 0;font-size:14px;">${window.esc(p.left || "")} → <span style="color:var(--muted);">…</span></div>`;
+      });
+    }
+    blocks += `</div>`;
+  });
+  box.innerHTML = `
+    <h2 style="margin:0 0 8px;font-size:18px;">${title}</h2>
+    <p style="margin:0 0 16px;font-size:13px;color:var(--muted);">Перегляд як у учня в Telegram (без перемішування та без оцінювання).</p>
+    ${blocks || '<p style="color:var(--muted);">Немає питань.</p>'}
+    <button type="button" class="btn" id="test-student-preview-close" style="margin-top:16px;">Закрити</button>
+  `;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  window.$("#test-student-preview-close", overlay).onclick = close;
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+}
+
 function populateSavedTestsList() {
   const tbody = window.$("#t-saved-table tbody");
   const filterInput = window.$("#t-filter-input");
@@ -955,13 +983,16 @@ function populateSavedTestsList() {
         <td>${window.esc(test.subjectName) || "<i>(всі)</i>"}</td>
         <td>${(test.questions || []).length}</td>
         <td>
-          <div class="form-buttons-group" style="gap: 5px;">
+          <div class="form-buttons-group" style="gap: 5px; flex-wrap: wrap;">
+            <button class="btn ghost btn-preview-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Перегляд</button>
             <button class="btn ghost btn-edit-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Редагувати</button>
             <button class="btn ghost btn-dup-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Дублювати</button>
             <button class="btn danger btn-del-test" style="padding: 6px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Видалити</button>
           </div>
         </td>
       `;
+
+      window.$(".btn-preview-test", tr).onclick = () => openTestStudentPreview(test);
 
       window.$(".btn-edit-test", tr).onclick = () => openTestEditorTab(test.id);
 

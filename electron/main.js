@@ -421,6 +421,17 @@ ipcMain.handle("tj:write-csv", async (e, p, txt) => {
   } catch (err) { return { error: err.message }; }
 });
 
+/** Експорт JSON у папки користувача (Desktop/Documents/Downloads), як write-csv */
+ipcMain.handle("tj:write-json-export", async (e, p, data) => {
+  try {
+    if (!isExportPathSafe(p)) return { error: "Path rejected" };
+    await fs.promises.writeFile(p, JSON.stringify(data, null, 2), "utf-8");
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle("tj:write-xlsx", async (e, p, data) => {
   try {
     if (!isExportPathSafe(p)) return { error: "Path rejected" };

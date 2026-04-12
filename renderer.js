@@ -4,7 +4,7 @@ import { openTab, setActive, closeTab } from './navigation.js';
 import { renderHome, showCalendarContextMenu } from './module_home.js';
 import { renderLesson, renderLessonsList, openOrCreateLesson, renderNewLessonDialog, showLessonListContextMenu } from './module_lessons.js';
 import { renderEditorPage, populateEditorClasses, moveClassOrder, populateEditorSubjects, showEditorContextMenu, bindEditorPageLogic } from './module_students.js';
-import { renderTests, renderTestResults, renderRunTest, calcScore, previewImage, refreshTestsIfOpen } from './module_tests.js';
+import { renderTests, renderTestResults, renderRunTest, calcScore, previewImage, refreshTestsIfOpen, syncAttemptsFromCloud } from './module_tests.js';
 import { renderReportPage, populateReportPageFilters, bindReportPageLogic, generateReportHTML } from './module_reports.js';
 import { renderNotesPage } from './module_notes.js';
 import { renderSettings, updateGoogleAuthStatusUI } from './settings_app/module_settings.js';
@@ -233,6 +233,23 @@ async function init(){
     window.state.attempts = (await window.tj.readJSON(window.paths.attemptsPath)) || [];
     refreshTestsIfOpen();
   });
+
+  async function runCloudAttemptsSync() {
+    const base =
+      typeof window.getCloudBaseUrl === "function"
+        ? window.getCloudBaseUrl()
+        : (window.state.settings?.cloudApiBaseUrl || "").trim();
+    const key = (window.state.settings?.cloudApiKey || "").trim();
+    if (!base || !key) return;
+    try {
+      const n = await syncAttemptsFromCloud();
+      if (n > 0) refreshTestsIfOpen();
+    } catch (_) {
+      /* немає мережі або помилка API */
+    }
+  }
+  setInterval(runCloudAttemptsSync, 45 * 1000);
+  setTimeout(runCloudAttemptsSync, 4000);
 
   setInterval(async () => {
     if (window.auth.profile && window.state.settings.autoSync) {

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("tj", {
   openExternal: (url) => ipcRenderer.invoke("tj:open-external", url),
   readJSON: (p) => ipcRenderer.invoke("tj:read-json", p),
   writeJSON: (p,d) => ipcRenderer.invoke("tj:write-json", p, d),
+  writeJSONExport: (p, d) => ipcRenderer.invoke("tj:write-json-export", p, d),
   chooseFiles: ()=>ipcRenderer.invoke("tj:choose-files"),
   chooseFolder: ()=>ipcRenderer.invoke("tj:choose-folder"),
   addFiles: (paths)=>ipcRenderer.invoke("tj:add-files", paths), 
