@@ -55,6 +55,13 @@ router.patch("/me/telegram-notify", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
+    if (e.code === "42703") {
+      res.status(503).json({
+        error:
+          "У базі немає колонки для сповіщень. Виконайте на Neon SQL з файлу server/migrations/003_teacher_telegram_notify.sql",
+      });
+      return;
+    }
     res.status(500).json({ error: "Помилка збереження" });
   }
 });

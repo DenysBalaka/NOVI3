@@ -100,15 +100,20 @@ async function findStudentsByClassAndFullName(className, fullName) {
 async function getTeacherNotifyChatIdsForClassName(className) {
   const cn = String(className || "").trim().toLowerCase();
   if (!cn) return [];
-  const r = await pool.query(
-    `SELECT DISTINCT t.telegram_notify_chat_id AS chat_id
-     FROM teachers t
-     JOIN classes c ON c.teacher_id = t.id
-     WHERE LOWER(TRIM(c.name)) = $1
-     AND t.telegram_notify_chat_id IS NOT NULL`,
-    [cn]
-  );
-  return r.rows.map((row) => row.chat_id).filter((id) => id != null);
+  try {
+    const r = await pool.query(
+      `SELECT DISTINCT t.telegram_notify_chat_id AS chat_id
+       FROM teachers t
+       JOIN classes c ON c.teacher_id = t.id
+       WHERE LOWER(TRIM(c.name)) = $1
+       AND t.telegram_notify_chat_id IS NOT NULL`,
+      [cn]
+    );
+    return r.rows.map((row) => row.chat_id).filter((id) => id != null);
+  } catch (e) {
+    if (e.code === "42703") return [];
+    throw e;
+  }
 }
 
 module.exports = {
