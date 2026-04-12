@@ -11,6 +11,7 @@ const auth = require("./auth_handler.js");
 const { startTelegramBot, stopTelegramBot } = require("./telegram_bot.js");
 
 let win;
+
 function ensureDirs(){
   const root = path.join(app.getPath("appData"), "TeacherJournalPortable");
   const files = path.join(root, "files");
@@ -35,6 +36,28 @@ function ensureDirs(){
 }
 const paths = ensureDirs();
 auth.init(paths.root);
+
+function loadAppConfig() {
+  try {
+    const p = path.join(__dirname, "..", "app_config.json");
+    if (!fs.existsSync(p)) return {};
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (e) {
+    console.warn("app_config.json:", e.message);
+    return {};
+  }
+}
+const appConfig = loadAppConfig();
+
+function readSettingsJson() {
+  try {
+    const p = paths.settingsPath;
+    if (!fs.existsSync(p)) return {};
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return {};
+  }
+}
 
 function isPathSafe(targetPath) {
   const resolved = path.resolve(targetPath);
@@ -121,7 +144,11 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
-  startTelegramBot(paths, () => win);
+  const st = readSettingsJson();
+  const localOn =
+    !!(st.telegramLocalBotEnabled ?? st.telegramBotEnabled) &&
+    String(st.telegramBotToken || "").trim().length > 0;
+  if (localOn) startTelegramBot(paths, () => win);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -181,9 +208,99 @@ ipcMain.handle("tj:open-board-window", (e, boardPath) => createBoardWindow(board
 // === IPC: Файли ===
 ipcMain.handle("tj:get-paths", () => paths);
 
+ipcMain.handle("tj:get-app-config", () => ({ ...appConfig }));
+
+ipcMain.handle("tj:open-external", async (_e, url) => {
+  const u = typeof url === "string" ? url.trim() : "";
+  if (!/^https?:\/\//i.test(u)) return { error: "Недійсне посилання" };
+  try {
+    await shell.openExternal(u);
+    return { ok: true };
+  } catch (e) {
+    return { error: e.message || String(e) };
+  }
+});
+
 ipcMain.handle("tj:telegram-reload", () => {
-  startTelegramBot(paths, () => win);
+  const st = readSettingsJson();
+  const localOn =
+    !!(st.telegramLocalBotEnabled ?? st.telegramBotEnabled) &&
+    String(st.telegramBotToken || "").trim().length > 0;
+  if (localOn) startTelegramBot(paths, () => win);
+  else stopTelegramBot();
   return { ok: true };
+});
+
+ipcMain.handle("tj:cloud-api", async (_e, { method = "GET", path: apiPath, body }) => {
+  const settings = readSettingsJson();
+  const base = String(settings.cloudApiBaseUrl || appConfig.defaultCloudApiBaseUrl || "")
+    .trim()
+    .replace(/\/$/, "");
+  const key = String(settings.cloudApiKey || "").trim();
+  if (!base) {
+    return {
+      error:
+        "Адреса хмари не задана. Розробник має вказати defaultCloudApiBaseUrl у app_config.json або увімкніть режим розробника (Ctrl+Shift+D).",
+    };
+  }
+  if (!key) {
+    return { error: "Підключіть хмару в Налаштуваннях (обліковий запис вчителя)." };
+  }
+  const url = `${base}/api/v1/${String(apiPath || "").replace(/^\/+/, "")}`;
+  const headers = { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    return { error: e.message || String(e) };
+  }
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { _raw: text };
+  }
+  if (!res.ok) {
+    const msg = (data && data.error) || text || `HTTP ${res.status}`;
+    return { error: msg, status: res.status };
+  }
+  return { data };
+});
+
+ipcMain.handle("tj:cloud-register", async (_e, { baseUrl, displayName, school }) => {
+  const base = String(baseUrl || appConfig.defaultCloudApiBaseUrl || "")
+    .trim()
+    .replace(/\/$/, "");
+  if (!base) {
+    return { error: "Немає адреси сервісу. Розробник має задати defaultCloudApiBaseUrl у app_config.json." };
+  }
+  const url = `${base}/api/v1/register`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: displayName || "", school: school || "" }),
+    });
+  } catch (e) {
+    return { error: e.message || String(e) };
+  }
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = {};
+  }
+  if (!res.ok) {
+    return { error: (data && data.error) || text || `HTTP ${res.status}` };
+  }
+  return { data };
 });
 
 ipcMain.handle("tj:read-json", async (e, p) => {

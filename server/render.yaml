@@ -1,0 +1,11 @@
+# Приклад для Render: Web Service, підключити репозиторій і задати змінні в панелі (DATABASE_URL, TELEGRAM_*, PUBLIC_URL).
+services:
+  - type: web
+    name: teacherjournal-cloud
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

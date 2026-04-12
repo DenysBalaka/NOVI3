@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("tj", {
 
   // Файли
   getPaths: () => ipcRenderer.invoke("tj:get-paths"),
+  getAppConfig: () => ipcRenderer.invoke("tj:get-app-config"),
+  openExternal: (url) => ipcRenderer.invoke("tj:open-external", url),
   readJSON: (p) => ipcRenderer.invoke("tj:read-json", p),
   writeJSON: (p,d) => ipcRenderer.invoke("tj:write-json", p, d),
   chooseFiles: ()=>ipcRenderer.invoke("tj:choose-files"),
@@ -41,6 +43,8 @@ contextBridge.exposeInMainWorld("tj", {
   cloudSyncDownload: () => ipcRenderer.invoke("tj:cloud-sync-download"),
 
   telegramReload: () => ipcRenderer.invoke("tj:telegram-reload"),
+  cloudApi: (opts) => ipcRenderer.invoke("tj:cloud-api", opts),
+  cloudRegister: (payload) => ipcRenderer.invoke("tj:cloud-register", payload),
 
   // Локальне резервне копіювання
   createBackup: () => ipcRenderer.invoke("tj:create-backup"),

@@ -147,30 +147,87 @@ export function renderSettings() {
         </div>
       </div>
 
-      <div class="settings-card" id="telegram-settings-section">
+      <div class="settings-card" id="telegram-students-section">
         <div class="settings-card-header">
           <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(0,136,204,0.15),rgba(0,136,204,0.05));color:#0088cc;">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2L2 12l5.5 2L19 6l-8.5 6v6l3-4"/></svg>
           </div>
           <div class="export-card-title">
-            <h3>Telegram-бот</h3>
-            <p>Віддалене проходження тестів учнями через месенджер</p>
+            <h3>Учням — тести в Telegram</h3>
+            <p>Окремого входу в програму не потрібно</p>
           </div>
         </div>
         <div class="settings-card-body">
+          <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0 0 12px;">
+            Учні проходять тести у Telegram. Посилання на бота вже вбудоване в цю копію програми — нічого налаштовувати не потрібно.
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            <button type="button" class="btn" id="btn-open-tg-bot">Відкрити бота в Telegram</button>
+          </div>
+          <p id="tg-bot-link-hint" style="font-size:12px;color:var(--muted);margin:10px 0 0;line-height:1.4;"></p>
+        </div>
+      </div>
+
+      <div class="settings-card" id="telegram-teacher-section">
+        <div class="settings-card-header">
+          <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));color:#3b82f6;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <div class="export-card-title">
+            <h3>Обліковий запис вчителя (хмара)</h3>
+            <p>Один клік — без URL і ключів</p>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <p id="cloud-account-status" style="font-size:14px;margin:0 0 12px;line-height:1.5;"></p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;">
+            <button type="button" class="btn" id="btn-cloud-connect">Підключити хмару</button>
+            <button type="button" class="btn danger" id="btn-cloud-disconnect">Вийти з хмари</button>
+          </div>
+          <p style="font-size:13px;color:var(--text-secondary);margin:12px 0 0;line-height:1.45;">
+            Після підключення відкрийте <b>Тести → Telegram</b>: синхронізація класів, публікація тестів і результати.
+          </p>
+        </div>
+      </div>
+
+      <div class="settings-card" id="dev-telegram-panel" style="display: ${typeof localStorage !== "undefined" && localStorage.getItem("tj_developer") === "1" ? "block" : "none"};">
+        <div class="settings-card-header">
+          <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(113,113,122,0.25),rgba(113,113,122,0.08));color:var(--muted);">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div class="export-card-title">
+            <h3>Розробник (Ctrl+Shift+D)</h3>
+            <p>URL сервера, API-ключ, локальний бот — не для кінцевих користувачів</p>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div class="form-group">
+            <label for="cloud-api-base">Базова URL сервісу (перекриває app_config.json, якщо задано)</label>
+            <input type="url" class="input" id="cloud-api-base" placeholder="https://your-app.onrender.com" value="${window.esc(s.cloudApiBaseUrl || "")}" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="cloud-api-key">API-ключ вчителя</label>
+            <input type="password" class="input" id="cloud-api-key" placeholder="внутрішньо" value="${window.esc(s.cloudApiKey || "")}" autocomplete="off" spellcheck="false">
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
+            <button type="button" class="btn" id="cloud-register-btn">Реєстрація (показати ключ)</button>
+          </div>
+          <div class="settings-card-header" style="padding:12px 0 8px;margin:0;border:none;">
+            <div class="export-card-title" style="margin:0;">
+              <h3 style="font-size:16px;">Локальний бот</h3>
+              <p style="margin:0;">Long polling у цьому додатку</p>
+            </div>
+          </div>
           <div class="form-group" style="margin-bottom:12px;">
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-              <input type="checkbox" id="tg-bot-enabled" ${s.telegramBotEnabled ? "checked" : ""}>
-              <span>Увімкнути бота (long polling; працює, поки запущено цей додаток)</span>
+              <input type="checkbox" id="tg-local-enabled" ${s.telegramLocalBotEnabled ? "checked" : ""}>
+              <span>Увімкнути локальний бот на цьому ПК</span>
             </label>
           </div>
           <div class="form-group">
-            <label for="tg-bot-token">HTTP API токен бота (отримати у @BotFather)</label>
+            <label for="tg-bot-token">HTTP API токен бота (@BotFather)</label>
             <input type="password" class="input" id="tg-bot-token" placeholder="123456789:AA..." value="${window.esc(s.telegramBotToken || "")}" autocomplete="off" spellcheck="false">
           </div>
-          <p style="font-size:13px;color:var(--text-secondary);margin:0;line-height:1.45;">
-            Які тести показувати в боті, виберіть у розділі <b>Тести → Telegram</b>. Після завершення тесту бали з’являються у вкладці «Результати» автоматично.
-          </p>
           <div id="tg-feedback" class="settings-feedback"></div>
         </div>
       </div>
@@ -239,6 +296,106 @@ export function renderSettings() {
 
   updateGoogleAuthStatusUI();
 
+  const refreshCloudAccountUi = () => {
+    const el = window.$("#cloud-account-status");
+    if (el) {
+      el.textContent = window.isTeacherCloudConnected()
+        ? "Хмару підключено на цьому комп’ютері. Дані для синхронізації зберігаються локально."
+        : "Хмару ще не підключено. Натисніть «Підключити хмару» (потрібен інтернет).";
+    }
+    const hint = window.$("#tg-bot-link-hint");
+    if (hint) {
+      const u = window.getTelegramBotUrl();
+      hint.textContent = u
+        ? `Посилання: ${u}`
+        : "У збірці не задано telegramBotUsername / telegramBotPublicUrl у app_config.json — зверніться до розробника.";
+    }
+  };
+  refreshCloudAccountUi();
+
+  const openTgBtn = window.$("#btn-open-tg-bot");
+  if (openTgBtn) {
+    openTgBtn.onclick = async () => {
+      const u = window.getTelegramBotUrl();
+      if (!u) {
+        await window.showCustomAlert(
+          "Telegram",
+          "Посилання на бота не налаштоване в app_config.json. Зверніться до розробника."
+        );
+        return;
+      }
+      const r = await window.tj.openExternal(u);
+      if (r.error) await window.showCustomAlert("Помилка", r.error);
+    };
+  }
+
+  const btnCloudConnect = window.$("#btn-cloud-connect");
+  if (btnCloudConnect) {
+    btnCloudConnect.onclick = async () => {
+      if (window.isTeacherCloudConnected()) {
+        await window.showCustomAlert(
+          "Хмара",
+          "Обліковий запис уже підключено. Щоб створити новий, спочатку натисніть «Вийти з хмари»."
+        );
+        return;
+      }
+      const base = window.getCloudBaseUrl();
+      if (!base) {
+        await window.showCustomAlert(
+          "Підключення",
+          "Немає адреси сервера хмари. Розробник має задати defaultCloudApiBaseUrl у app_config.json, або увімкніть режим розробника (Ctrl+Shift+D) і введіть URL вручну."
+        );
+        return;
+      }
+      const tp = window.state.settings.teacherProfile || {};
+      const res = await window.tj.cloudRegister({
+        baseUrl: base,
+        displayName: tp.fullName || "Вчитель",
+        school: tp.school || "",
+      });
+      if (res.error) {
+        await window.showCustomAlert("Помилка", res.error);
+        return;
+      }
+      const d = res.data;
+      if (d && d.apiKey) {
+        window.state.settings.cloudApiKey = d.apiKey;
+        if (!(window.state.settings.cloudApiBaseUrl || "").trim()) {
+          window.state.settings.cloudApiBaseUrl = base;
+        }
+        window.saveSettings();
+        const cloudKeyEl = window.$("#cloud-api-key");
+        if (cloudKeyEl) cloudKeyEl.value = d.apiKey;
+        await window.showCustomAlert("Готово", "Хмару підключено. Можна керувати тестами в розділі «Тести → Telegram».");
+        refreshCloudAccountUi();
+      }
+    };
+  }
+
+  const btnCloudDisconnect = window.$("#btn-cloud-disconnect");
+  if (btnCloudDisconnect) {
+    btnCloudDisconnect.onclick = async () => {
+      if (!window.isTeacherCloudConnected()) {
+        await window.showCustomAlert("Хмара", "Немає активного підключення.");
+        return;
+      }
+      const ok = await window.showCustomConfirm(
+        "Вийти з хмари",
+        "На цьому комп’ютері буде видалено збережений ключ доступу. Дані журналу залишаться. Продовжити?",
+        "Вийти",
+        "Скасувати",
+        true
+      );
+      if (!ok) return;
+      window.state.settings.cloudApiKey = "";
+      window.state.settings.cloudRosterMap = {};
+      window.saveSettings();
+      const cloudKeyEl = window.$("#cloud-api-key");
+      if (cloudKeyEl) cloudKeyEl.value = "";
+      refreshCloudAccountUi();
+    };
+  }
+
   const tgFb = window.$("#tg-feedback");
   const reloadTelegramBot = async () => {
     try {
@@ -255,10 +412,60 @@ export function renderSettings() {
       }
     }
   };
-  const tgEnabled = window.$("#tg-bot-enabled");
-  if (tgEnabled) {
-    tgEnabled.onchange = async () => {
-      window.state.settings.telegramBotEnabled = !!tgEnabled.checked;
+  const cloudBase = window.$("#cloud-api-base");
+  const cloudKey = window.$("#cloud-api-key");
+  if (cloudBase) {
+    cloudBase.oninput = window.debounce(() => {
+      window.state.settings.cloudApiBaseUrl = cloudBase.value.trim();
+      window.saveSettings();
+    }, 600);
+  }
+  if (cloudKey) {
+    cloudKey.oninput = window.debounce(() => {
+      window.state.settings.cloudApiKey = cloudKey.value.trim();
+      window.saveSettings();
+    }, 600);
+  }
+  const regBtn = window.$("#cloud-register-btn");
+  if (regBtn) {
+    regBtn.onclick = async () => {
+      const base =
+        (cloudBase && cloudBase.value.trim()) ||
+        window.getCloudBaseUrl() ||
+        "";
+      if (!base) {
+        await window.showCustomAlert("Реєстрація", "Задайте базову URL або defaultCloudApiBaseUrl у app_config.json.");
+        return;
+      }
+      const tp = window.state.settings.teacherProfile || {};
+      const res = await window.tj.cloudRegister({
+        baseUrl: base,
+        displayName: tp.fullName || "",
+        school: tp.school || "",
+      });
+      if (res.error) {
+        await window.showCustomAlert("Помилка", res.error);
+        return;
+      }
+      const d = res.data;
+      if (d && d.apiKey) {
+        window.state.settings.cloudApiBaseUrl = base;
+        window.state.settings.cloudApiKey = d.apiKey;
+        if (cloudKey) cloudKey.value = d.apiKey;
+        window.saveSettings();
+        await window.showCustomAlert(
+          "API-ключ (розробник)",
+          `Збережіть ключ:\n\n${d.apiKey}\n\nВін також записаний у полі вище.`
+        );
+        refreshCloudAccountUi();
+      }
+    };
+  }
+  const tgLocalEnabled = window.$("#tg-local-enabled");
+  if (tgLocalEnabled) {
+    tgLocalEnabled.onchange = async () => {
+      window.state.settings.telegramLocalBotEnabled = !!tgLocalEnabled.checked;
+      window.state.settings.telegramBotEnabled = !!tgLocalEnabled.checked;
       window.saveSettings();
       await reloadTelegramBot();
     };

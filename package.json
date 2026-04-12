@@ -31,6 +31,7 @@
       "renderer.js",
       "styles.css",
       "package.json",
+      "app_config.json",
       "navigation.js",
       "utils.js",
       "module_home.js",

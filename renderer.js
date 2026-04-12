@@ -99,7 +99,26 @@ async function init(){
   window.tabsEl = window.$("#tabs");
   window.areaEl = window.$("#area");
   window.paths = await window.tj.getPaths();
-  
+  window.appConfig = (await window.tj.getAppConfig()) || {};
+  window.getCloudBaseUrl = function getCloudBaseUrl() {
+    const s = window.state && window.state.settings ? window.state.settings : {};
+    const def = (window.appConfig && window.appConfig.defaultCloudApiBaseUrl) || "";
+    return String(s.cloudApiBaseUrl || "").trim() || String(def).trim();
+  };
+  window.getTelegramBotUrl = function getTelegramBotUrl() {
+    const c = window.appConfig || {};
+    const pub = String(c.telegramBotPublicUrl || "").trim();
+    if (pub) return pub;
+    const u = String(c.telegramBotUsername || "")
+      .replace(/^@/, "")
+      .trim();
+    return u ? `https://t.me/${u}` : "";
+  };
+  window.isTeacherCloudConnected = function isTeacherCloudConnected() {
+    const s = window.state && window.state.settings ? window.state.settings : {};
+    return !!(s.cloudApiKey || "").trim();
+  };
+
   const DEFAULT_SETTINGS = {
     teacherPassword: null,
     autoSync: true,
@@ -116,7 +135,12 @@ async function init(){
       category: "", title: "", experience: ""
     },
     telegramBotEnabled: false,
-    telegramBotToken: ""
+    telegramBotToken: "",
+    telegramLocalBotEnabled: false,
+    cloudApiBaseUrl: "",
+    cloudApiKey: "",
+    cloudLastAttemptSync: null,
+    cloudRosterMap: {}
   };
 
   const loadedSettings = (await window.tj.readJSON(window.paths.settingsPath)) || {};
@@ -128,6 +152,13 @@ async function init(){
   newNavIds.forEach(id => { if (!migratedSettings.navOrder.includes(id)) migratedSettings.navOrder.push(id); });
   if (migratedSettings.telegramBotEnabled === undefined) migratedSettings.telegramBotEnabled = DEFAULT_SETTINGS.telegramBotEnabled;
   if (migratedSettings.telegramBotToken === undefined) migratedSettings.telegramBotToken = DEFAULT_SETTINGS.telegramBotToken;
+  if (migratedSettings.telegramLocalBotEnabled === undefined) {
+    migratedSettings.telegramLocalBotEnabled = !!migratedSettings.telegramBotEnabled;
+  }
+  if (migratedSettings.cloudApiBaseUrl === undefined) migratedSettings.cloudApiBaseUrl = DEFAULT_SETTINGS.cloudApiBaseUrl;
+  if (migratedSettings.cloudApiKey === undefined) migratedSettings.cloudApiKey = DEFAULT_SETTINGS.cloudApiKey;
+  if (migratedSettings.cloudLastAttemptSync === undefined) migratedSettings.cloudLastAttemptSync = DEFAULT_SETTINGS.cloudLastAttemptSync;
+  if (migratedSettings.cloudRosterMap === undefined) migratedSettings.cloudRosterMap = DEFAULT_SETTINGS.cloudRosterMap;
 
   window.state = {
     lessons: (await window.tj.readJSON(window.paths.lessonsPath)) || [],
@@ -166,6 +197,25 @@ async function init(){
   const teacherName = window.state.settings.teacherProfile?.fullName;
   const displayName = teacherName ? `, ${teacherName.split(' ')[0]}` : ", вчителю";
   window.mainHeader.innerHTML = `<h1>${greeting}${displayName}!</h1>`;
+
+  window.callCloudApi = async function callCloudApi(method, path, body) {
+    const res = await window.tj.cloudApi({ method, path, body });
+    if (res.error) throw new Error(res.error);
+    return res.data;
+  };
+
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === "d" || e.key === "D")) {
+      e.preventDefault();
+      const on = localStorage.getItem("tj_developer") === "1";
+      localStorage.setItem("tj_developer", on ? "0" : "1");
+      window.showCustomAlert(
+        "Режим розробника",
+        on ? "Вимкнено." : "Увімкнено. Відкрийте Налаштування — з’явиться блок для URL, API-ключа та локального бота (Ctrl+Shift+D)."
+      );
+      if (window.active === "settings") window.renderSettings();
+    }
+  });
 
   renderHome(); bindNav();
 

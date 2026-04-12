@@ -66,34 +66,162 @@ function renderTestsPage() {
   }
 }
 
+async function pushTestToCloud(test) {
+  await window.callCloudApi("PUT", `tests/${encodeURIComponent(test.id)}`, {
+    title: test.title,
+    payloadJson: test,
+    publishedTelegram: test.availableInTelegram !== false,
+  });
+}
+
+async function syncRosterToCloud() {
+  const classes = window.state.classOrder.map((name, idx) => ({
+    name,
+    sortOrder: idx,
+    students: (window.state.students[name] || []).map((fullName, si) => ({
+      fullName: typeof fullName === "string" ? fullName : String(fullName && fullName.fullName != null ? fullName.fullName : ""),
+      sortOrder: si,
+    })).filter((x) => x.fullName.trim()),
+  }));
+  const data = await window.callCloudApi("POST", "roster/sync", { classes });
+  window.state.settings.cloudRosterMap = data.roster;
+  window.saveSettings();
+  return data.roster;
+}
+
+async function syncAttemptsFromCloud() {
+  const since = window.state.settings.cloudLastAttemptSync || null;
+  const q = since ? `attempts?since=${encodeURIComponent(since)}` : "attempts";
+  const data = await window.callCloudApi("GET", q);
+  const rows = data.attempts || [];
+  const existing = new Set(
+    (window.state.attempts || []).filter((a) => a.cloudAttemptId).map((a) => a.cloudAttemptId)
+  );
+  let added = 0;
+  for (const row of rows) {
+    if (existing.has(row.id)) continue;
+    const payload = typeof row.payload_json === "object" && row.payload_json !== null ? row.payload_json : JSON.parse(row.payload_json || "{}");
+    payload.cloudAttemptId = row.id;
+    payload.source = "telegram";
+    if (row.test_external_id && !payload.testId) payload.testId = row.test_external_id;
+    window.state.attempts.push(payload);
+    added++;
+  }
+  window.state.settings.cloudLastAttemptSync = new Date().toISOString();
+  window.saveSettings();
+  window.saveAttempts();
+  return added;
+}
+
 function renderTelegramTestsView(container) {
-  const tgOn = window.state.settings?.telegramBotEnabled && (window.state.settings?.telegramBotToken || '').trim().length > 0;
+  const baseUrl =
+    typeof window.getCloudBaseUrl === "function" ? window.getCloudBaseUrl() : (window.state.settings?.cloudApiBaseUrl || "").trim();
+  const cloudOk = !!baseUrl && (window.state.settings?.cloudApiKey || "").trim().length > 0;
+  const localOn =
+    window.state.settings?.telegramLocalBotEnabled &&
+    (window.state.settings?.telegramBotToken || "").trim().length > 0;
   const tests = window.state.tests || [];
 
   container.innerHTML = `
     <div class="config-box" style="flex-direction:column;align-items:stretch;gap:12px;">
       <p style="margin:0;color:var(--text-secondary);font-size:14px;line-height:1.5;">
-        Позначте тести, які учні зможуть обрати в Telegram після команди <code>/start</code>.
-        Токен бота та вмикання — у <b>Налаштуваннях → Telegram-бот</b>. Програма має бути запущена на комп’ютері вчителя, щоб бот відповідав.
+        <b>Хмарний режим:</b> один бот для всіх учителів (Render). Налаштуйте URL та API-ключ у
+        <b>Налаштуваннях → Telegram (хмара)</b>, натисніть «Синхронізувати класи», опублікуйте тести та призначте доступ класу або конкретному учню.
       </p>
       <div style="padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-light);border:1px solid var(--border-color);font-size:13px;">
-        Стан бота: ${tgOn
-          ? '<span style="color:var(--grade-10);font-weight:600;">увімкнено (якщо додаток запущено)</span>'
-          : '<span style="color:var(--muted);">вимкнено або токен не задано</span>'}
+        Хмара: ${cloudOk
+          ? '<span style="color:var(--grade-10);font-weight:600;">налаштована</span>'
+          : '<span style="color:var(--muted);">не налаштована</span>'} ·
+        Локальний бот: ${localOn
+          ? '<span style="color:var(--grade-10);font-weight:600;">увімкнено</span>'
+          : '<span style="color:var(--muted);">вимкнено</span>'}
       </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <button type="button" class="btn" id="tg-sync-roster" ${cloudOk ? "" : "disabled"}>Синхронізувати класи та учнів</button>
+        <button type="button" class="btn" id="tg-pull-attempts" ${cloudOk ? "" : "disabled"}>Завантажити результати з хмари</button>
+      </div>
+      <p id="tg-sync-msg" style="margin:0;font-size:13px;color:var(--text-secondary);"></p>
     </div>
 
-    <div class="output-box">
+    <div class="output-box" style="margin-top:16px;">
       <div class="output-box-header">
-        <h3>Доступність тестів у боті</h3>
+        <h3>Призначення доступу до тесту</h3>
+      </div>
+      <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+        <div class="form-group" style="min-width:220px;">
+          <label for="tg-pick-test">Тест</label>
+          <select id="tg-pick-test" class="input"></select>
+        </div>
+        <div class="form-group" style="min-width:200px;">
+          <label for="tg-pick-class">Додати клас</label>
+          <select id="tg-pick-class" class="input"></select>
+        </div>
+        <button type="button" class="btn" id="tg-add-class-assign" ${cloudOk ? "" : "disabled"}>Додати клас</button>
+        <div class="form-group" style="min-width:200px;">
+          <label for="tg-pick-student">Додати учня</label>
+          <select id="tg-pick-student" class="input"></select>
+        </div>
+        <button type="button" class="btn" id="tg-add-student-assign" ${cloudOk ? "" : "disabled"}>Додати учня</button>
+      </div>
+      <div id="tg-assign-list" style="padding:0 12px 12px;font-size:13px;"></div>
+    </div>
+
+    <div class="output-box" style="margin-top:16px;">
+      <div class="output-box-header">
+        <h3>Ручна прив’язка Telegram (учень)</h3>
+      </div>
+      <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+        <div class="form-group" style="min-width:180px;">
+          <label for="tg-man-class">Клас</label>
+          <select id="tg-man-class" class="input"></select>
+        </div>
+        <div class="form-group" style="min-width:200px;">
+          <label for="tg-man-student">Учень</label>
+          <select id="tg-man-student" class="input"></select>
+        </div>
+        <div class="form-group" style="min-width:140px;">
+          <label for="tg-man-userid">Telegram user id</label>
+          <input type="text" class="input" id="tg-man-userid" placeholder="123456789" autocomplete="off">
+        </div>
+        <div class="form-group" style="min-width:120px;">
+          <label for="tg-man-user">@username</label>
+          <input type="text" class="input" id="tg-man-user" placeholder="без @" autocomplete="off">
+        </div>
+        <button type="button" class="btn" id="tg-man-save" ${cloudOk ? "" : "disabled"}>Зберегти в хмарі</button>
+      </div>
+      <p style="margin:0 12px 12px;font-size:12px;color:var(--text-secondary);">Після збереження учень зможе бачити тести, призначені йому або класу.</p>
+    </div>
+
+    <div class="output-box" style="margin-top:16px;">
+      <div class="output-box-header">
+        <h3>Посилання-запрошення</h3>
+      </div>
+      <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+        <div class="form-group" style="min-width:180px;">
+          <label for="tg-inv-class">Клас</label>
+          <select id="tg-inv-class" class="input"></select>
+        </div>
+        <div class="form-group" style="min-width:200px;">
+          <label for="tg-inv-student">Учень (для індивідуального)</label>
+          <select id="tg-inv-student" class="input"></select>
+        </div>
+        <button type="button" class="btn" id="tg-inv-create" ${cloudOk ? "" : "disabled"}>Створити посилання</button>
+      </div>
+      <p id="tg-inv-out" style="margin:0 12px 12px;font-size:13px;word-break:break-all;color:var(--accent);"></p>
+    </div>
+
+    <div class="output-box" style="margin-top:16px;">
+      <div class="output-box-header">
+        <h3>Опублікувати тести в боті</h3>
       </div>
       <table class="table" id="tg-tests-table">
         <thead>
           <tr>
-            <th>Доступний</th>
+            <th>У боті</th>
             <th>Назва</th>
             <th>Клас</th>
             <th>Питань</th>
+            <th style="width:120px;">Хмара</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -101,9 +229,279 @@ function renderTelegramTestsView(container) {
     </div>
   `;
 
+  const msgEl = window.$("#tg-sync-msg");
+  const rosterSelects = () => {
+    const roster = window.state.settings.cloudRosterMap || {};
+    const classSel = window.$("#tg-pick-class");
+    const studSel = window.$("#tg-pick-student");
+    const manClass = window.$("#tg-man-class");
+    const manStud = window.$("#tg-man-student");
+    [classSel, studSel, manClass, manStud].forEach((el) => {
+      if (el) el.innerHTML = "";
+    });
+    if (classSel) classSel.innerHTML = '<option value="">— оберіть клас —</option>';
+    if (manClass) manClass.innerHTML = '<option value="">—</option>';
+    Object.keys(roster).sort().forEach((cname) => {
+      const cid = roster[cname].classId;
+      if (classSel) {
+        const o = document.createElement("option");
+        o.value = cid;
+        o.textContent = cname;
+        classSel.appendChild(o);
+      }
+      if (manClass) {
+        const o2 = document.createElement("option");
+        o2.value = cid;
+        o2.textContent = cname;
+        o2.dataset.className = cname;
+        manClass.appendChild(o2);
+      }
+    });
+    if (studSel) studSel.innerHTML = '<option value="">— спочатку клас у «Додати клас» —</option>';
+    if (manStud) manStud.innerHTML = '<option value="">—</option>';
+  };
+
+  const fillStudentsForClass = (classId, targetStudSel, roster) => {
+    if (!targetStudSel) return;
+    targetStudSel.innerHTML = '<option value="">— оберіть учня —</option>';
+    const cname = Object.keys(roster).find((k) => roster[k].classId === classId);
+    if (!cname || !roster[cname].students) return;
+    Object.entries(roster[cname].students).forEach(([name, sid]) => {
+      const o = document.createElement("option");
+      o.value = sid;
+      o.textContent = name;
+      targetStudSel.appendChild(o);
+    });
+  };
+
+  const refreshAssignmentList = async () => {
+    const sel = window.$("#tg-pick-test");
+    const testId = sel && sel.value;
+    const box = window.$("#tg-assign-list");
+    if (!testId || !box) return;
+    if (!cloudOk) {
+      box.textContent = "";
+      return;
+    }
+    try {
+      const data = await window.callCloudApi("GET", `assignments?testExternalId=${encodeURIComponent(testId)}`);
+      const list = data.assignments || [];
+      if (list.length === 0) {
+        box.innerHTML = '<span style="color:var(--muted);">Немає призначень — додайте клас або учня.</span>';
+        return;
+      }
+      box.innerHTML = list
+        .map((a) => {
+          const label =
+            a.target_type === "class"
+              ? `Клас: ${window.esc(a.class_name || "")}`
+              : `Учень: ${window.esc(a.student_name || "")}`;
+          return `<span style="display:inline-flex;align-items:center;gap:6px;margin:4px 8px 4px 0;padding:4px 8px;background:var(--bg-light);border-radius:var(--radius-md);">${label}
+            <button type="button" class="btn" style="min-height:28px;padding:2px 8px;font-size:12px;" data-del-assign="${a.id}">×</button></span>`;
+        })
+        .join("");
+      window.$$("[data-del-assign]", box).forEach((btn) => {
+        btn.onclick = async () => {
+          try {
+            await window.callCloudApi("DELETE", `assignments/${btn.dataset.delAssign}`);
+            await refreshAssignmentList();
+          } catch (e) {
+            await window.showCustomAlert("Помилка", e.message || String(e));
+          }
+        };
+      });
+    } catch (e) {
+      box.textContent = "Не вдалося завантажити призначення: " + (e.message || e);
+    }
+  };
+
+  const testPick = window.$("#tg-pick-test");
+  if (testPick) {
+    testPick.innerHTML = '<option value="">— оберіть тест —</option>';
+    tests.forEach((t) => {
+      const o = document.createElement("option");
+      o.value = t.id;
+      o.textContent = t.title || t.id;
+      testPick.appendChild(o);
+    });
+    testPick.onchange = () => {
+      const cl = window.$("#tg-pick-class");
+      if (cl && cl.value) fillStudentsForClass(cl.value, window.$("#tg-pick-student"), window.state.settings.cloudRosterMap || {});
+      refreshAssignmentList();
+    };
+  }
+
+  rosterSelects();
+  const rmap = window.state.settings.cloudRosterMap || {};
+  const pc = window.$("#tg-pick-class");
+  if (pc) {
+    pc.onchange = () => fillStudentsForClass(pc.value, window.$("#tg-pick-student"), rmap);
+  }
+  const mc = window.$("#tg-man-class");
+  if (mc) {
+    mc.onchange = () => {
+      const cid = mc.value;
+      const ms = window.$("#tg-man-student");
+      if (!cid || !ms) return;
+      ms.innerHTML = '<option value="">—</option>';
+      const cname = Object.keys(rmap).find((k) => rmap[k].classId === cid);
+      if (!cname || !rmap[cname].students) return;
+      Object.entries(rmap[cname].students).forEach(([name, sid]) => {
+        const o = document.createElement("option");
+        o.value = sid;
+        o.textContent = name;
+        ms.appendChild(o);
+      });
+    };
+  }
+
+  const invMc = window.$("#tg-inv-class");
+  const invMs = window.$("#tg-inv-student");
+  if (invMc) {
+    invMc.innerHTML = '<option value="">—</option>';
+    Object.keys(rmap)
+      .sort()
+      .forEach((cname) => {
+        const cid = rmap[cname].classId;
+        const o = document.createElement("option");
+        o.value = cid;
+        o.textContent = cname;
+        invMc.appendChild(o);
+      });
+    invMc.onchange = () => {
+      if (!invMs) return;
+      invMs.innerHTML = '<option value="">— Увесь клас (за іменем)</option>';
+      const cid = invMc.value;
+      if (!cid) return;
+      const cname = Object.keys(rmap).find((k) => rmap[k].classId === cid);
+      if (!cname || !rmap[cname].students) return;
+      Object.entries(rmap[cname].students).forEach(([name, sid]) => {
+        const o = document.createElement("option");
+        o.value = sid;
+        o.textContent = name;
+        invMs.appendChild(o);
+      });
+    };
+  }
+
+  const invCreate = window.$("#tg-inv-create");
+  if (invCreate) {
+    invCreate.onclick = async () => {
+      const cid = invMc && invMc.value;
+      const sid = invMs && invMs.value;
+      const out = window.$("#tg-inv-out");
+      if (!cid) {
+        await window.showCustomAlert("Запрошення", "Оберіть клас.");
+        return;
+      }
+      try {
+        const body = sid ? { studentId: sid } : { classId: cid };
+        const data = await window.callCloudApi("POST", "invites", body);
+        if (out) {
+          out.textContent = data.link || "";
+          out.style.color = "var(--accent)";
+        }
+      } catch (e) {
+        await window.showCustomAlert("Помилка", e.message || String(e));
+      }
+    };
+  }
+
+  window.$("#tg-sync-roster").onclick = async () => {
+    msgEl.textContent = "Синхронізація…";
+    try {
+      await syncRosterToCloud();
+      msgEl.textContent = "Класи та учні оновлені в хмарі.";
+      msgEl.style.color = "var(--grade-10)";
+      rosterSelects();
+      const r2 = window.state.settings.cloudRosterMap || {};
+      if (pc && pc.value) fillStudentsForClass(pc.value, window.$("#tg-pick-student"), r2);
+    } catch (e) {
+      msgEl.textContent = e.message || String(e);
+      msgEl.style.color = "var(--danger)";
+    }
+  };
+
+  window.$("#tg-pull-attempts").onclick = async () => {
+    msgEl.textContent = "Завантаження…";
+    try {
+      const n = await syncAttemptsFromCloud();
+      msgEl.textContent = `Додано нових спроб: ${n}.`;
+      msgEl.style.color = "var(--grade-10)";
+      window.refreshTestsIfOpen();
+    } catch (e) {
+      msgEl.textContent = e.message || String(e);
+      msgEl.style.color = "var(--danger)";
+    }
+  };
+
+  window.$("#tg-add-class-assign").onclick = async () => {
+    const tid = testPick && testPick.value;
+    const cid = pc && pc.value;
+    if (!tid || !cid) {
+      await window.showCustomAlert("Призначення", "Оберіть тест і клас.");
+      return;
+    }
+    try {
+      await window.callCloudApi("POST", "assignments", {
+        testExternalId: tid,
+        targetType: "class",
+        classId: cid,
+      });
+      await refreshAssignmentList();
+    } catch (e) {
+      await window.showCustomAlert("Помилка", e.message || String(e));
+    }
+  };
+
+  window.$("#tg-add-student-assign").onclick = async () => {
+    const tid = testPick && testPick.value;
+    const sid = window.$("#tg-pick-student") && window.$("#tg-pick-student").value;
+    if (!tid || !sid) {
+      await window.showCustomAlert("Призначення", "Оберіть тест, клас і учня.");
+      return;
+    }
+    try {
+      await window.callCloudApi("POST", "assignments", {
+        testExternalId: tid,
+        targetType: "user",
+        studentId: sid,
+      });
+      await refreshAssignmentList();
+    } catch (e) {
+      await window.showCustomAlert("Помилка", e.message || String(e));
+    }
+  };
+
+  window.$("#tg-man-save").onclick = async () => {
+    const sid = window.$("#tg-man-student") && window.$("#tg-man-student").value;
+    const uid = window.$("#tg-man-userid") && window.$("#tg-man-userid").value.trim();
+    const un = window.$("#tg-man-user") && window.$("#tg-man-user").value.trim();
+    if (!sid) {
+      await window.showCustomAlert("Telegram", "Оберіть учня.");
+      return;
+    }
+    if (!uid && !un) {
+      await window.showCustomAlert("Telegram", "Введіть user id або username.");
+      return;
+    }
+    try {
+      const body = {};
+      if (uid) body.telegramUserId = uid.replace(/\s+/g, "");
+      if (un) body.telegramUsername = un.replace(/^@/, "");
+      await window.callCloudApi("PATCH", `students/${sid}/telegram`, body);
+      msgEl.textContent = "Прив’язку збережено в хмарі.";
+      msgEl.style.color = "var(--grade-10)";
+    } catch (e) {
+      await window.showCustomAlert("Помилка", e.message || String(e));
+    }
+  };
+
+  if (testPick && testPick.value) refreshAssignmentList();
+
   const tbody = window.$("#tg-tests-table tbody");
   if (tests.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);">Немає збережених тестів.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);">Немає збережених тестів.</td></tr>`;
     return;
   }
 
@@ -118,16 +516,43 @@ function renderTelegramTestsView(container) {
       <td>${window.esc(t.title)}</td>
       <td>${window.esc(t.className || "—")}</td>
       <td>${n}</td>
+      <td><button type="button" class="btn tg-push-cloud" data-test-idx="${idx}" ${cloudOk && n > 0 ? "" : "disabled"} style="min-height:32px;">Відправити</button></td>
     `;
     tbody.appendChild(tr);
   });
 
   window.$$(".tg-test-cb", tbody).forEach((cb) => {
-    cb.onchange = () => {
+    cb.onchange = async () => {
       const idx = parseInt(cb.dataset.testIdx, 10);
       if (!window.state.tests[idx]) return;
       window.state.tests[idx].availableInTelegram = cb.checked;
       window.saveTests();
+      if (!cloudOk) return;
+      try {
+        await pushTestToCloud(window.state.tests[idx]);
+        msgEl.textContent = "Тест оновлено в хмарі.";
+        msgEl.style.color = "var(--grade-10)";
+      } catch (e) {
+        msgEl.textContent = e.message || String(e);
+        msgEl.style.color = "var(--danger)";
+      }
+    };
+  });
+
+  window.$$(".tg-push-cloud", tbody).forEach((btn) => {
+    btn.onclick = async () => {
+      const idx = parseInt(btn.dataset.testIdx, 10);
+      const test = window.state.tests[idx];
+      if (!test || cloudOk === false) return;
+      msgEl.textContent = "Відправка…";
+      try {
+        await pushTestToCloud(test);
+        msgEl.textContent = "Тест відправлено в хмару.";
+        msgEl.style.color = "var(--grade-10)";
+      } catch (e) {
+        msgEl.textContent = e.message || String(e);
+        msgEl.style.color = "var(--danger)";
+      }
     };
   });
 }
