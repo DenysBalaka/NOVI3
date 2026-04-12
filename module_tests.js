@@ -212,13 +212,7 @@ function renderTelegramTestsView(container) {
   const tests = window.state.tests || [];
 
   container.innerHTML = `
-    <div class="config-box" style="flex-direction:column;align-items:stretch;gap:12px;">
-      <p style="margin:0;color:var(--text-secondary);font-size:14px;line-height:1.5;">
-        <b>Хмарний режим:</b> учні заходять у бота (<code>/start</code> або слово <code>start</code>), вводять <b>клас</b> і <b>ПІБ</b> як у журналі — прив’язка відбувається автоматично.
-        Вчитель у <b>Налаштуваннях</b> може вказати Telegram id для сповіщень, якщо прив’язка не вдалася.
-        Синхронізуйте класи, опублікуйте тести та призначте доступ класу або учню.
-        Якщо хмару налаштовано, <b>результати спроб з бота підтягуються автоматично</b> у вкладку «Результати».
-      </p>
+    <div class="config-box" style="flex-direction:column;align-items:stretch;gap:8px;">
       <div style="padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-light);border:1px solid var(--border-color);font-size:13px;">
         Хмара: ${cloudOk
           ? '<span style="color:var(--grade-10);font-weight:600;">налаштована</span>'
@@ -226,9 +220,6 @@ function renderTelegramTestsView(container) {
         Локальний бот: ${localOn
           ? '<span style="color:var(--grade-10);font-weight:600;">увімкнено</span>'
           : '<span style="color:var(--muted);">вимкнено</span>'}
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;">
-        <button type="button" class="btn" id="tg-sync-roster" ${cloudOk ? "" : "disabled"}>Синхронізувати класи та учнів</button>
       </div>
       <p id="tg-sync-msg" style="margin:0;font-size:13px;color:var(--text-secondary);"></p>
     </div>
@@ -277,9 +268,12 @@ function renderTelegramTestsView(container) {
       <div class="output-box-header">
         <h3>Опублікувати тести в боті</h3>
       </div>
-      <p style="margin:0 12px 10px;font-size:13px;color:var(--text-secondary);">Позначте тести та натисніть «Відправити обрані в хмару».</p>
+      <p style="margin:0 12px 10px;font-size:13px;color:var(--text-secondary);">
+        Позначте тести та натисніть «Синхронізувати з ботом», щоб опублікувати їх у Telegram.
+        Якщо зняти всі позначки і натиснути ту саму кнопку — усі тести зникнуть з бота для учнів.
+      </p>
       <div style="padding:0 12px 12px;">
-        <button type="button" class="btn" id="tg-bulk-push" ${cloudOk ? "" : "disabled"}>Відправити обрані в хмару</button>
+        <button type="button" class="btn" id="tg-bulk-push" ${cloudOk ? "" : "disabled"}>Синхронізувати з ботом</button>
       </div>
       <table class="table" id="tg-tests-table">
         <thead>
@@ -389,21 +383,6 @@ function renderTelegramTestsView(container) {
   if (pc) {
     pc.onchange = () => fillStudentsForClass(pc.value, window.$("#tg-pick-student"), rmap);
   }
-
-  window.$("#tg-sync-roster").onclick = async () => {
-    msgEl.textContent = "Синхронізація…";
-    try {
-      await syncRosterToCloud();
-      msgEl.textContent = "Класи та учні оновлені в хмарі.";
-      msgEl.style.color = "var(--grade-10)";
-      rosterSelects();
-      const r2 = window.state.settings.cloudRosterMap || {};
-      if (pc && pc.value) fillStudentsForClass(pc.value, window.$("#tg-pick-student"), r2);
-    } catch (e) {
-      msgEl.textContent = e.message || String(e);
-      msgEl.style.color = "var(--danger)";
-    }
-  };
 
   window.$("#tg-add-class-assign").onclick = async () => {
     const tid = testPick && testPick.value;
@@ -517,18 +496,54 @@ function renderTelegramTestsView(container) {
     bulkPush.onclick = async () => {
       const selected = window.$$(".tg-bulk-cb:checked", tbody);
       if (selected.length === 0) {
-        await window.showCustomAlert("Хмара", "Позначте хоча б один тест.");
+        if (!cloudOk) {
+          await window.showCustomAlert("Хмара", "Налаштуйте хмару в Налаштуваннях.");
+          return;
+        }
+        const okUnpublish = await window.showCustomConfirm(
+          "Синхронізація з ботом",
+          "Зняти з публікації в Telegram усі тести зі списку? Учні більше не бачитимуть їх у боті.",
+          "Зняти з бота",
+          "Скасувати",
+          true
+        );
+        if (!okUnpublish) return;
+        msgEl.textContent = "Оновлення…";
+        msgEl.style.color = "var(--text-secondary)";
+        let n = 0;
+        for (const test of window.state.tests) {
+          if ((test.questions || []).length === 0) continue;
+          try {
+            test.availableInTelegram = false;
+            await pushTestToCloud(test);
+            n++;
+          } catch (e) {
+            msgEl.textContent = e.message || String(e);
+            msgEl.style.color = "var(--danger)";
+            window.saveTests();
+            return;
+          }
+        }
+        window.saveTests();
+        window.$$(".tg-bulk-cb", tbody).forEach((cb) => {
+          cb.checked = false;
+        });
+        if (checkAll) checkAll.checked = false;
+        msgEl.textContent =
+          n > 0 ? `Усі тести знято з бота (${n}).` : "Немає тестів з питаннями для оновлення.";
+        msgEl.style.color = "var(--grade-10)";
         return;
       }
       msgEl.textContent = "Відправка…";
+      msgEl.style.color = "var(--text-secondary)";
       let ok = 0;
       for (const cb of selected) {
         const idx = parseInt(cb.dataset.testIdx, 10);
         const test = window.state.tests[idx];
         if (!test || (test.questions || []).length === 0) continue;
         try {
-          await pushTestToCloud(test);
           test.availableInTelegram = true;
+          await pushTestToCloud(test);
           ok++;
         } catch (e) {
           msgEl.textContent = e.message || String(e);
@@ -538,7 +553,7 @@ function renderTelegramTestsView(container) {
         }
       }
       window.saveTests();
-      msgEl.textContent = `Відправлено в хмару тестів: ${ok}.`;
+      msgEl.textContent = `Опубліковано в боті тестів: ${ok}.`;
       msgEl.style.color = "var(--grade-10)";
     };
   }
