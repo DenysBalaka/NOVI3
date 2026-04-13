@@ -572,6 +572,7 @@ function renderTestsListView(container) {
       </div>
       <div class="form-buttons-group">
         <button class="btn" id="t-create-new-btn" style="height: 38px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Створити новий тест</button>
+        <button class="btn ghost" id="t-create-ai-btn" style="height: 38px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg> AI-генерація тесту</button>
       </div>
     </div>
 
@@ -619,6 +620,139 @@ function renderTestsListView(container) {
     window.saveTests();
     openTestEditorTab(newTest.id);
   };
+
+  window.$("#t-create-ai-btn").onclick = () => {
+    const classSel = window.$("#t-new-class-select");
+    const subjectSel = window.$("#t-new-subject-select");
+    openAiTestGenerationTab({
+      className: classSel?.value || "",
+      subjectName: subjectSel?.value || "",
+    });
+  };
+}
+
+function openAiTestGenerationTab(initial = {}) {
+  const tabId = "test-ai-generation";
+  const tabTitle = "AI: Генерація тесту";
+  window.openTab(tabId, tabTitle, () => {
+    const className = initial.className || "";
+    const subjectName = initial.subjectName || "";
+
+    window.areaEl.innerHTML = `
+      <div class="settings-page" style="max-width:980px;margin:0 auto;">
+        <div class="export-page-header">
+          <div>
+            <h2 style="margin-bottom:4px;">AI-генерація тесту</h2>
+            <p style="color:var(--text-secondary); margin:0;">Введіть тему, кількість питань і опції — тест буде створено у вашому стандартному форматі.</p>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-body">
+            <div class="settings-form-grid" style="grid-template-columns:1fr 1fr;">
+              <div class="form-group">
+                <label for="ai-test-title">Назва тесту (опціонально)</label>
+                <input class="input" id="ai-test-title" placeholder="Наприклад: Контрольна з теми..." value="">
+              </div>
+              <div class="form-group">
+                <label for="ai-q-count">Кількість питань</label>
+                <input class="input" id="ai-q-count" type="number" min="1" max="50" value="10">
+              </div>
+
+              <div class="form-group">
+                <label for="ai-class">Клас</label>
+                <select id="ai-class" class="input"></select>
+              </div>
+              <div class="form-group">
+                <label for="ai-subject">Предмет</label>
+                <select id="ai-subject" class="input"></select>
+              </div>
+
+              <div class="form-group" style="grid-column:1 / -1;">
+                <label for="ai-prompt">Промпт / тема</label>
+                <textarea class="input" id="ai-prompt" placeholder="Наприклад: Трикутники, теорема Піфагора, 8 клас. Додай 2 задачі на обчислення та 2 на вибір правильної відповіді." style="min-height:120px;"></textarea>
+              </div>
+
+              <div class="form-group" style="grid-column:1 / -1; margin:0;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                  <input type="checkbox" id="ai-want-images">
+                  <span>Потрібні зображення (будуть додані як плейсхолдери, їх можна замінити вручну)</span>
+                </label>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+              <button type="button" class="btn" id="ai-generate-btn">Згенерувати</button>
+              <button type="button" class="btn ghost" id="ai-close-btn">Закрити</button>
+              <span id="ai-status" style="font-size:13px;color:var(--text-secondary);"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const classSel = window.$("#ai-class");
+    const subjectSel = window.$("#ai-subject");
+    populateTestFilters(classSel, subjectSel, true);
+    if (classSel) classSel.value = className;
+    if (subjectSel) subjectSel.value = subjectName;
+
+    const statusEl = window.$("#ai-status");
+    const setStatus = (txt, ok) => {
+      if (!statusEl) return;
+      statusEl.textContent = txt || "";
+      statusEl.style.color = ok === false ? "var(--danger)" : ok === true ? "var(--grade-10)" : "var(--text-secondary)";
+    };
+
+    window.$("#ai-close-btn").onclick = () => window.closeTab(tabId);
+
+    window.$("#ai-generate-btn").onclick = async () => {
+      const genBtn = window.$("#ai-generate-btn");
+      const prompt = (window.$("#ai-prompt").value || "").trim();
+      const questionCount = parseInt(window.$("#ai-q-count").value, 10) || 10;
+      const wantImages = !!window.$("#ai-want-images").checked;
+      const overrideTitle = (window.$("#ai-test-title").value || "").trim();
+
+      if (!prompt) {
+        await window.showCustomAlert("AI", "Введіть промпт/тему для генерації.");
+        return;
+      }
+
+      setStatus("Генерація…", null);
+      if (genBtn) genBtn.disabled = true;
+
+      try {
+        const res = await window.tj.aiGenerateTest({ prompt, questionCount, wantImages });
+        if (res && res.error) throw new Error(res.error);
+        const t = res && res.data ? res.data : null;
+        if (!t || !Array.isArray(t.questions) || t.questions.length === 0) {
+          throw new Error("Порожній результат генерації.");
+        }
+
+        const newTest = {
+          id: "test_" + Date.now(),
+          title: overrideTitle || t.title || "AI тест",
+          className: classSel?.value || "",
+          subjectName: subjectSel?.value || "",
+          shuffle: !!t.shuffle,
+          questions: t.questions,
+          availableInTelegram: true
+        };
+
+        window.state.tests.push(newTest);
+        window.saveTests();
+        setStatus("Готово. Відкриваю редактор для перевірки…", true);
+        openTestEditorTab(newTest.id);
+        window.closeTab(tabId);
+      } catch (e) {
+        console.error("AI generation failed:", e);
+        setStatus(e.message || String(e), false);
+        await window.showCustomAlert("Помилка AI", e.message || String(e));
+      } finally {
+        if (genBtn) genBtn.disabled = false;
+      }
+    };
+  });
 }
 
 // === РЕЗУЛЬТАТИ ТЕСТІВ ===

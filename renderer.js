@@ -140,7 +140,11 @@ async function init(){
     cloudApiBaseUrl: "",
     cloudApiKey: "",
     cloudLastAttemptSync: null,
-    cloudRosterMap: {}
+    cloudRosterMap: {},
+
+    // AI (налаштовує лише розробник у Dev меню)
+    googleAiApiKey: "",
+    googleAiModel: "gemini-2.0-flash-lite"
   };
 
   const loadedSettings = (await window.tj.readJSON(window.paths.settingsPath)) || {};
@@ -159,6 +163,8 @@ async function init(){
   if (migratedSettings.cloudApiKey === undefined) migratedSettings.cloudApiKey = DEFAULT_SETTINGS.cloudApiKey;
   if (migratedSettings.cloudLastAttemptSync === undefined) migratedSettings.cloudLastAttemptSync = DEFAULT_SETTINGS.cloudLastAttemptSync;
   if (migratedSettings.cloudRosterMap === undefined) migratedSettings.cloudRosterMap = DEFAULT_SETTINGS.cloudRosterMap;
+  if (migratedSettings.googleAiApiKey === undefined) migratedSettings.googleAiApiKey = DEFAULT_SETTINGS.googleAiApiKey;
+  if (migratedSettings.googleAiModel === undefined) migratedSettings.googleAiModel = DEFAULT_SETTINGS.googleAiModel;
 
   window.state = {
     lessons: (await window.tj.readJSON(window.paths.lessonsPath)) || [],

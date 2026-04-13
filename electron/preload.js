@@ -47,6 +47,9 @@ contextBridge.exposeInMainWorld("tj", {
   cloudApi: (opts) => ipcRenderer.invoke("tj:cloud-api", opts),
   cloudRegister: (payload) => ipcRenderer.invoke("tj:cloud-register", payload),
 
+  // AI (Google Gemini)
+  aiGenerateTest: (payload) => ipcRenderer.invoke("tj:ai-generate-test", payload),
+
   // Локальне резервне копіювання
   createBackup: () => ipcRenderer.invoke("tj:create-backup"),
   restoreBackup: () => ipcRenderer.invoke("tj:restore-backup"),

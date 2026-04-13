@@ -244,6 +244,21 @@ export function renderSettings() {
             <input type="password" class="input" id="tg-bot-token" placeholder="123456789:AA..." value="${window.esc(s.telegramBotToken || "")}" autocomplete="off" spellcheck="false">
           </div>
           <div id="tg-feedback" class="settings-feedback"></div>
+
+          <div class="settings-card-header" style="padding:12px 0 8px;margin:0;border:none;">
+            <div class="export-card-title" style="margin:0;">
+              <h3 style="font-size:16px;">AI API (Google)</h3>
+              <p style="margin:0;">Налаштовується один раз розробником</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="ai-google-key">Google AI API ключ</label>
+            <input type="password" class="input" id="ai-google-key" placeholder="AIza..." value="${window.esc(s.googleAiApiKey || "")}" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-group">
+            <label for="ai-google-model">Модель (за замовчуванням)</label>
+            <input type="text" class="input" id="ai-google-model" placeholder="gemini-..." value="${window.esc(s.googleAiModel || "")}" autocomplete="off" spellcheck="false">
+          </div>
         </div>
       </div>
 
@@ -531,6 +546,21 @@ export function renderSettings() {
       window.saveSettings();
       await reloadTelegramBot();
     }, 900);
+  }
+
+  const aiKey = window.$("#ai-google-key");
+  if (aiKey) {
+    aiKey.oninput = window.debounce(() => {
+      window.state.settings.googleAiApiKey = aiKey.value.trim();
+      window.saveSettings();
+    }, 600);
+  }
+  const aiModel = window.$("#ai-google-model");
+  if (aiModel) {
+    aiModel.oninput = window.debounce(() => {
+      window.state.settings.googleAiModel = aiModel.value.trim();
+      window.saveSettings();
+    }, 600);
   }
 
   // Бекапи

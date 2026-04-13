@@ -59,6 +59,418 @@ function readSettingsJson() {
   }
 }
 
+function safeErrObj(err) {
+  return {
+    name: err && err.name ? String(err.name) : "Error",
+    message: err && err.message ? String(err.message) : String(err || ""),
+    stack: err && err.stack ? String(err.stack) : undefined,
+  };
+}
+
+function clampInt(n, min, max, fallback) {
+  const v = Number.parseInt(String(n), 10);
+  if (Number.isNaN(v)) return fallback;
+  return Math.max(min, Math.min(max, v));
+}
+
+function toDataSvgCaption(caption) {
+  const text = String(caption || "").trim().slice(0, 80) || "Зображення";
+  const bg = "#111827";
+  const border = "#374151";
+  const fg = "#E5E7EB";
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="420" viewBox="0 0 800 420">` +
+    `<rect x="0" y="0" width="800" height="420" rx="18" ry="18" fill="${bg}" stroke="${border}" stroke-width="4"/>` +
+    `<g font-family="Segoe UI, Arial, sans-serif" fill="${fg}">` +
+    `<text x="40" y="72" font-size="22" opacity="0.9">AI-зображення (плейсхолдер)</text>` +
+    `<text x="40" y="126" font-size="34" font-weight="700">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</text>` +
+    `<text x="40" y="380" font-size="18" opacity="0.7">За потреби замініть на реальне фото в редакторі питання.</text>` +
+    `</g>` +
+    `</svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+function normalizeAiGeneratedTest(obj, { wantImages }) {
+  const out = {
+    title: "AI тест",
+    shuffle: false,
+    questions: [],
+  };
+
+  if (obj && typeof obj.title === "string" && obj.title.trim()) out.title = obj.title.trim().slice(0, 120);
+  if (obj && typeof obj.shuffle === "boolean") out.shuffle = obj.shuffle;
+
+  const qs = obj && Array.isArray(obj.questions) ? obj.questions : [];
+  for (const q of qs) {
+    if (!q || typeof q !== "object") continue;
+    const type = String(q.type || "radio").trim();
+    if (!["radio", "check", "matching"].includes(type)) continue;
+    const text = String(q.text || "").trim();
+    if (!text) continue;
+
+    const points = clampInt(q.points, 1, 12, 1);
+
+    const nq = { type, text, image: null, points };
+
+    const cap = String(q.imageCaption || q.image_hint || q.imageHint || "").trim();
+    if (wantImages && cap) nq.image = toDataSvgCaption(cap);
+
+    if (type === "radio" || type === "check") {
+      const opts = Array.isArray(q.options) ? q.options : [];
+      const cleaned = opts
+        .map((o) => {
+          if (!o) return null;
+          if (typeof o === "string") return { text: String(o).trim().slice(0, 200), correct: false };
+          if (typeof o === "object") {
+            return {
+              text: String(o.text || o.value || "").trim().slice(0, 200),
+              correct: o.correct === true,
+            };
+          }
+          return null;
+        })
+        .filter((o) => o && o.text);
+      if (cleaned.length < 2) continue;
+
+      if (type === "radio") {
+        // ensure exactly one correct
+        const idx = cleaned.findIndex((o) => o.correct);
+        cleaned.forEach((o, i) => (o.correct = i === (idx >= 0 ? idx : 0)));
+      } else {
+        // ensure at least one correct
+        if (!cleaned.some((o) => o.correct)) cleaned[0].correct = true;
+      }
+      nq.options = cleaned.slice(0, 8);
+    } else if (type === "matching") {
+      const pairs = Array.isArray(q.pairs) ? q.pairs : [];
+      const cleaned = pairs
+        .map((p) => {
+          if (!p || typeof p !== "object") return null;
+          const left = String(p.left || "").trim().slice(0, 160);
+          const right = String(p.right || "").trim().slice(0, 160);
+          if (!left || !right) return null;
+          return { left, right };
+        })
+        .filter(Boolean);
+      if (cleaned.length < 2) continue;
+      nq.pairs = cleaned.slice(0, 8);
+    }
+
+    out.questions.push(nq);
+  }
+
+  return out;
+}
+
+function extractFirstJsonObject(text) {
+  const s = String(text || "");
+  if (!s.trim()) return null;
+
+  // Strip common Markdown fences
+  const unfenced = s
+    .replace(/^\s*```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
+    .trim();
+
+  // Fast path: direct JSON
+  if (unfenced.startsWith("{") && unfenced.endsWith("}")) return unfenced;
+
+  // Balanced-brace scan to find first full {...}
+  let start = -1;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < unfenced.length; i++) {
+    const ch = unfenced[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === "\"") inStr = false;
+      continue;
+    }
+    if (ch === "\"") {
+      inStr = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      if (depth > 0) depth--;
+      if (depth === 0 && start >= 0) {
+        return unfenced.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+async function googleGenerateTestViaApi({ prompt, count, wantImages, locale = "uk" }) {
+  const st = readSettingsJson();
+  const apiKey = String(st.googleAiApiKey || "").trim();
+  const configuredModel = String(st.googleAiModel || "gemini-2.0-flash-lite").trim();
+  if (!apiKey) return { error: "AI не налаштовано. Розробник має ввести Google AI API ключ у Налаштуваннях → Розробник." };
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const listModels = async () => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+    let res;
+    try {
+      res = await fetch(url, { method: "GET" });
+    } catch (e) {
+      console.error("ai.listModels fetch failed", { op: "ai.listModels.fetch", err: safeErrObj(e) });
+      return { error: "Не вдалося отримати список моделей (перевірте інтернет)." };
+    }
+    const text = await res.text();
+    if (!res.ok) {
+      console.error("ai.listModels http error", { op: "ai.listModels.http", status: res.status, body: String(text || "").slice(0, 800) });
+      return { error: `AI API помилка під час ListModels (HTTP ${res.status}).` };
+    }
+    let data;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (e) {
+      console.error("ai.listModels invalid JSON", { op: "ai.listModels.parse", body: String(text || "").slice(0, 800) });
+      return { error: "AI API повернуло некоректну відповідь (ListModels)." };
+    }
+    const models = Array.isArray(data?.models) ? data.models : [];
+    const usable = models
+      .map((m) => {
+        const name = String(m?.name || "").trim(); // e.g. "models/gemini-2.0-flash"
+        const methods = Array.isArray(m?.supportedGenerationMethods) ? m.supportedGenerationMethods : [];
+        return { name, methods };
+      })
+      .filter((m) => m.name && m.methods.includes("generateContent"))
+      .map((m) => m.name.replace(/^models\//, ""));
+    return { data: usable };
+  };
+
+  const parseApiErrorMessage = (rawText) => {
+    const t = String(rawText || "").trim();
+    if (!t) return "";
+    try {
+      const j = JSON.parse(t);
+      const msg = j && j.error && (j.error.message || j.error.status);
+      return msg ? String(msg) : "";
+    } catch {
+      return t.slice(0, 400);
+    }
+  };
+
+  const buildCandidateModels = (availableModels) => {
+    const preferred = [
+      configuredModel,
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash-lite",
+      "gemini-2.0-flash",
+    ]
+      .map((m) => String(m || "").trim())
+      .filter(Boolean);
+
+    const avail = Array.isArray(availableModels) ? availableModels.map((m) => String(m || "").trim()).filter(Boolean) : [];
+    const ranked = [];
+    const seen = new Set();
+    const push = (m) => {
+      if (!m || seen.has(m)) return;
+      seen.add(m);
+      ranked.push(m);
+    };
+    preferred.forEach(push);
+
+    // додаємо будь-які доступні gemini-* flash моделі як запасні
+    avail
+      .filter((m) => /^gemini-/i.test(m))
+      .sort((a, b) => a.localeCompare(b))
+      .forEach(push);
+    return ranked;
+  };
+
+  const sys = [
+    "Ти — генератор тестів для шкільного журналу.",
+    "Поверни ЛИШЕ валідний JSON без Markdown і без пояснень.",
+    "Формат JSON:",
+    "{",
+    '  "title": "string",',
+    '  "shuffle": false,',
+    '  "questions": [',
+    "    {",
+    '      "type": "radio|check|matching",',
+    '      "text": "string",',
+    '      "points": 1,',
+    '      "imageCaption": "string (опціонально, якщо потрібні зображення)",',
+    '      "options": [{"text":"string","correct":true|false}] (для radio/check),',
+    '      "pairs": [{"left":"string","right":"string"}] (для matching)',
+    "    }",
+    "  ]",
+    "}",
+    "Правила:",
+    "- Використовуй лише типи: radio, check, matching (НЕ text).",
+    "- Для radio: рівно 1 правильний варіант.",
+    "- Для check: 1-3 правильні варіанти.",
+    "- Для matching: мінімум 3 пари.",
+    "- Опцій максимум 4 (radio) або 6 (check).",
+    "- Питань рівно стільки, скільки вказано користувачем.",
+    "- Мова питань: українська.",
+  ].join("\n");
+
+  const user = [
+    `Тема/побажання: ${String(prompt || "").trim()}`,
+    `Кількість питань: ${count}`,
+    `Потрібні зображення: ${wantImages ? "так" : "ні"}`,
+  ].join("\n");
+
+  const requestBody = {
+    contents: [
+      { role: "user", parts: [{ text: sys }] },
+      { role: "user", parts: [{ text: user }] },
+    ],
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 4096,
+      // Якщо API підтримує — примусити JSON-відповідь
+      responseMimeType: "application/json",
+    },
+  };
+
+  let lastHttp = null;
+  let lastBody = "";
+  // Спершу пробуємо без ListModels (швидко), але якщо впадемо в 404 по моделі — підтягнемо список моделей.
+  let availableModels = null;
+  let modelsToTry = buildCandidateModels(availableModels);
+
+  for (let mi = 0; mi < modelsToTry.length; mi++) {
+    const model = modelsToTry[mi];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    // retries only for transient errors
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let res;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
+      } catch (e) {
+        console.error("ai.generateTest fetch failed", {
+          op: "ai.generateTest.fetch",
+          model,
+          attempt,
+          err: safeErrObj(e),
+        });
+        return { error: "Не вдалося підключитися до AI (перевірте інтернет)." };
+      }
+
+      const text = await res.text();
+      if (res.ok) {
+        // success path uses "text" below
+        lastBody = text;
+        lastHttp = { status: res.status, model };
+        attempt = 999; // break retries
+        break;
+      }
+
+      lastHttp = { status: res.status, model };
+      lastBody = text;
+      const apiMsg = parseApiErrorMessage(text);
+      console.error("ai.generateTest http error", {
+        op: "ai.generateTest.http",
+        status: res.status,
+        model,
+        attempt,
+        apiMsg: apiMsg || undefined,
+        body: String(text || "").slice(0, 800),
+      });
+
+      // transient: retry with backoff
+      if (res.status === 503 || res.status === 429) {
+        const waitMs = 600 * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+        await sleep(waitMs);
+        continue;
+      }
+
+      // model not found / unsupported: fetch ListModels once and rebuild candidates
+      if (res.status === 404 && availableModels == null) {
+        const lm = await listModels();
+        if (lm?.data && Array.isArray(lm.data) && lm.data.length > 0) {
+          availableModels = lm.data;
+          modelsToTry = buildCandidateModels(availableModels);
+          // restart model loop from beginning with refined list
+          mi = -1;
+          break;
+        }
+      }
+
+      // non-transient: try next model
+      break;
+    }
+
+    // if we got OK response, stop trying models
+    if (lastHttp && lastHttp.model === model) {
+      // if lastBody is non-empty and status might still be non-ok, we continue to next model
+      // We only want to stop early if it was successful; successful path sets attempt to 999 and breaks retry loop,
+      // but we don't have res.ok here. We'll detect success by trying to parse JSON later; if parse fails due to error,
+      // we will continue models only when status indicates model issue. For simplicity: if status is 200, stop.
+      if (lastHttp.status >= 200 && lastHttp.status < 300) break;
+    }
+  }
+
+  if (!lastHttp || !(lastHttp.status >= 200 && lastHttp.status < 300)) {
+    const apiMsg = parseApiErrorMessage(lastBody);
+    const status = lastHttp ? lastHttp.status : 0;
+    const model = lastHttp ? lastHttp.model : configuredModel;
+    return {
+      error:
+        apiMsg
+          ? `AI API помилка (HTTP ${status}, модель ${model}): ${apiMsg}`
+          : `AI API помилка (HTTP ${status}, модель ${model}).`,
+    };
+  }
+
+  let data;
+  try {
+    data = lastBody ? JSON.parse(lastBody) : null;
+  } catch (e) {
+    console.error("ai.generateTest invalid JSON from API", { op: "ai.generateTest.parseApi", body: lastBody?.slice(0, 800) });
+    return { error: "AI API повернуло некоректну відповідь." };
+  }
+
+  const outText =
+    data &&
+    data.candidates &&
+    data.candidates[0] &&
+    data.candidates[0].content &&
+    Array.isArray(data.candidates[0].content.parts)
+      ? data.candidates[0].content.parts.map((p) => (p && p.text ? String(p.text) : "")).join("")
+      : "";
+
+  const trimmed = String(outText || "").trim();
+  if (!trimmed) {
+    console.error("ai.generateTest empty model output", { op: "ai.generateTest.empty", api: data });
+    return { error: "AI не згенерувало результат." };
+  }
+
+  let obj;
+  try {
+    const maybeJson = extractFirstJsonObject(trimmed) || trimmed;
+    obj = JSON.parse(maybeJson);
+  } catch (e) {
+    console.error("ai.generateTest model output not JSON", { op: "ai.generateTest.parseModel", sample: trimmed.slice(0, 800) });
+    return { error: "AI повернуло не JSON. Спробуйте переформулювати промпт." };
+  }
+
+  const normalized = normalizeAiGeneratedTest(obj, { wantImages });
+  if (!normalized.questions || normalized.questions.length === 0) {
+    console.error("ai.generateTest normalized empty", { op: "ai.generateTest.normalizeEmpty", obj });
+    return { error: "AI не змогло сформувати коректні питання. Спробуйте інший запит." };
+  }
+  // гарантуємо рівно count (обрізаємо, якщо модель дала більше)
+  normalized.questions = normalized.questions.slice(0, count);
+  return { data: normalized };
+}
+
 function isPathSafe(targetPath) {
   const resolved = path.resolve(targetPath);
   return resolved.startsWith(paths.root + path.sep) || resolved === paths.root;
@@ -301,6 +713,23 @@ ipcMain.handle("tj:cloud-register", async (_e, { baseUrl, displayName, school })
     return { error: (data && data.error) || text || `HTTP ${res.status}` };
   }
   return { data };
+});
+
+ipcMain.handle("tj:ai-generate-test", async (_e, payload) => {
+  const op = "ai.generateTest";
+  try {
+    const prompt = payload && payload.prompt != null ? String(payload.prompt) : "";
+    const count = clampInt(payload && payload.questionCount, 1, 50, 10);
+    const wantImages = !!(payload && payload.wantImages);
+    if (!prompt.trim()) return { error: "Введіть тему/запит для генерації." };
+
+    const r = await googleGenerateTestViaApi({ prompt, count, wantImages, locale: "uk" });
+    if (r.error) return { error: r.error };
+    return { data: r.data };
+  } catch (e) {
+    console.error("ai.generateTest failed", { op, err: safeErrObj(e) });
+    return { error: "Не вдалося згенерувати тест. Перевірте налаштування AI та інтернет." };
+  }
 });
 
 ipcMain.handle("tj:read-json", async (e, p) => {
