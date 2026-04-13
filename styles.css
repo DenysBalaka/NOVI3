@@ -1419,6 +1419,18 @@ input[type="checkbox"]:checked::after {
   height: 26px;
   border-radius: 50%;
   border: 1.5px solid var(--border-color);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+.titlebar-profile .profile-avatar.profile-avatar--placeholder {
+  background: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
 }
 .titlebar-profile.logged-out {
   background: var(--accent);
@@ -1431,6 +1443,10 @@ input[type="checkbox"]:checked::after {
   transition: all var(--transition-fast);
 }
 .titlebar-profile.logged-out:hover { background: var(--accent-dark); }
+.titlebar-profile.logged-out .profile-name,
+.titlebar-profile.logged-out .profile-avatar {
+  cursor: pointer;
+}
 
 /* === Holiday Styles === */
 .date-month.holiday {

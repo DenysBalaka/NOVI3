@@ -123,6 +123,7 @@ async function init(){
     teacherPassword: null,
     autoSync: true,
     navOrder: ['nav-lessons', 'nav-students', 'nav-reports', 'nav-tests', 'nav-board', 'nav-notes', 'nav-schedule', 'nav-classjournal', 'nav-curriculum'],
+    navHidden: [],
     schoolYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
     semesters: [
       { name: "I семестр", startDate: `${new Date().getFullYear()}-09-01`, endDate: `${new Date().getFullYear()}-12-31` },
@@ -154,6 +155,10 @@ async function init(){
   else migratedSettings.teacherProfile = { ...DEFAULT_SETTINGS.teacherProfile, ...migratedSettings.teacherProfile };
   const newNavIds = ['nav-schedule', 'nav-classjournal', 'nav-curriculum'];
   newNavIds.forEach(id => { if (!migratedSettings.navOrder.includes(id)) migratedSettings.navOrder.push(id); });
+  if (migratedSettings.navHidden === undefined) migratedSettings.navHidden = DEFAULT_SETTINGS.navHidden;
+  if (!Array.isArray(migratedSettings.navHidden)) migratedSettings.navHidden = [];
+  // Прибираємо некоректні/застарілі id
+  migratedSettings.navHidden = migratedSettings.navHidden.filter(id => typeof id === "string" && migratedSettings.navOrder.includes(id));
   if (migratedSettings.telegramBotEnabled === undefined) migratedSettings.telegramBotEnabled = DEFAULT_SETTINGS.telegramBotEnabled;
   if (migratedSettings.telegramBotToken === undefined) migratedSettings.telegramBotToken = DEFAULT_SETTINGS.telegramBotToken;
   if (migratedSettings.telegramLocalBotEnabled === undefined) {
@@ -274,11 +279,16 @@ window.reorderNav = function() {
   const container = window.$("#nav-sidebar");
   const homeBtn = window.$("#nav-home");
   const order = window.state.settings.navOrder || ['nav-lessons', 'nav-students', 'nav-reports', 'nav-tests', 'nav-board', 'nav-notes'];
+  const hidden = new Set(window.state.settings.navHidden || []);
   
   let refNode = homeBtn;
   order.forEach(id => {
       const btn = window.$("#" + id);
-      if (btn && container.contains(btn)) {
+      if (!btn || !container.contains(btn)) return;
+
+      const isHidden = hidden.has(id);
+      btn.style.display = isHidden ? "none" : "";
+      if (!isHidden) {
           container.insertBefore(btn, refNode.nextSibling);
           refNode = btn; 
       }
@@ -334,11 +344,41 @@ function updateAuthUI(profile) {
   window.auth.profile = profile;
   const el = window.$("#titlebar-profile");
   if (profile) {
-    el.style.display = "flex"; el.classList.remove("logged-out"); el.onclick = null;
-    el.innerHTML = `<span class="profile-name">${window.esc(profile.given_name||profile.name)}</span><img src="${window.esc(profile.picture)}" class="profile-avatar">`;
+    el.style.display = "flex";
+    el.classList.remove("logged-out");
+    el.onclick = null;
+    el.innerHTML = `<span class="profile-name">${window.esc(profile.given_name || profile.name)}</span><img src="${window.esc(profile.picture)}" class="profile-avatar">`;
   } else {
-    el.style.display = "flex"; el.classList.add("logged-out"); el.onclick = window.handleGoogleLogin;
-    el.innerHTML = `Увійти`;
+    const fullName = (window.state?.settings?.teacherProfile?.fullName || "").trim();
+    const firstName = fullName ? fullName.split(/\s+/)[0] : "";
+    const initials = firstName ? firstName.slice(0, 1).toUpperCase() : "👤";
+
+    el.style.display = "flex";
+    el.classList.add("logged-out");
+    el.onclick = null;
+    el.innerHTML = `
+      <span class="profile-name" role="button" tabindex="0">Увійти${firstName ? ` (${window.esc(firstName)})` : ""}</span>
+      <div class="profile-avatar profile-avatar--placeholder" role="button" tabindex="0" aria-label="Увійти">${window.esc(initials)}</div>
+    `;
+
+    const triggerLogin = () => window.handleGoogleLogin && window.handleGoogleLogin();
+    const nameEl = el.querySelector(".profile-name");
+    const avatarEl = el.querySelector(".profile-avatar");
+    [nameEl, avatarEl].forEach((node) => {
+      if (!node) return;
+      node.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerLogin();
+      });
+      node.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          triggerLogin();
+        }
+      });
+    });
   }
   if (window.active === 'settings') updateGoogleAuthStatusUI();
 }

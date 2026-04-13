@@ -13,6 +13,33 @@ const navNames = {
   'nav-curriculum': '📋 КТП'
 };
 
+const NAV_IDS = Object.keys(navNames);
+
+function getHiddenSet() {
+  const arr = (window.state?.settings?.navHidden || []);
+  return new Set(Array.isArray(arr) ? arr : []);
+}
+
+function setNavHidden(id, hidden) {
+  if (!window.state.settings.navHidden || !Array.isArray(window.state.settings.navHidden)) {
+    window.state.settings.navHidden = [];
+  }
+  const set = new Set(window.state.settings.navHidden);
+  if (hidden) set.add(id);
+  else set.delete(id);
+  window.state.settings.navHidden = [...set].filter(x => NAV_IDS.includes(x));
+  window.saveSettings();
+  window.reorderNav();
+}
+
+function eyeSvg(isVisible) {
+  // Простий інлайн SVG без залежностей
+  if (isVisible) {
+    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  }
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7c2.5 0 4.6 1 6.2 2.2"/><path d="M22 12s-3.5 7-10 7c-2.5 0-4.6-1-6.2-2.2"/><path d="M3 3l18 18"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M14.1 14.1a3 3 0 0 0-4.2-4.2"/></svg>`;
+}
+
 const CATEGORIES = [
   "Спеціаліст", "Спеціаліст II категорії",
   "Спеціаліст I категорії", "Спеціаліст вищої категорії"
@@ -648,6 +675,7 @@ function renderNavOrderList() {
   
   container.innerHTML = "";
   const order = window.state.settings.navOrder || ['nav-lessons', 'nav-students', 'nav-reports', 'nav-tests', 'nav-board', 'nav-notes', 'nav-schedule', 'nav-classjournal', 'nav-curriculum'];
+  const hidden = getHiddenSet();
 
   order.forEach(id => {
     const name = navNames[id] || id; 
@@ -665,30 +693,66 @@ function renderNavOrderList() {
     
     el.dataset.navId = id;
     el.draggable = true;
-    el.innerHTML = `<span style="margin-right: 8px; color: var(--muted); cursor: grab;">≡</span> ${window.esc(name)}`;
+    const isHidden = hidden.has(id);
+    const isVisible = !isHidden;
+    if (isHidden) el.style.opacity = "0.65";
+    el.innerHTML = `
+      <span style="margin-right: 8px; color: var(--muted); cursor: grab; flex: 0 0 auto;">≡</span>
+      <span style="flex: 1 1 auto; min-width: 0;">${window.esc(name)}</span>
+      <div style="display:flex; align-items:center; gap:10px; margin-left:auto; flex: 0 0 auto;">
+        <button type="button"
+          class="nav-eye-btn"
+          aria-label="${isVisible ? "Видимо" : "Приховано"}"
+          style="
+            width: 34px; height: 34px;
+            display:inline-flex; align-items:center; justify-content:center;
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 10px;
+            color: ${isVisible ? "var(--text-secondary)" : "var(--muted)"};
+            cursor: pointer;
+          "
+        >${eyeSvg(isVisible)}</button>
+      </div>
+    `;
     container.appendChild(el);
+
+    const eyeBtn = el.querySelector(".nav-eye-btn");
+
+    const stop = (e) => { e.stopPropagation(); };
+    eyeBtn.addEventListener("mousedown", stop);
+    eyeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const nowHidden = !getHiddenSet().has(id);
+      setNavHidden(id, nowHidden);
+      renderNavOrderList();
+    });
   });
   
   if (container.lastChild) {
     container.lastChild.style.borderBottom = "none";
   }
   
-  let draggedItem = null;
-  
-  container.addEventListener('dragstart', (e) => {
-    if (e.target.classList.contains('nav-order-item')) {
-      draggedItem = e.target;
-      draggedItem.style.cursor = 'grabbing';
-      setTimeout(() => e.target.classList.add('dragging'), 0); 
-    }
-  });
-  
-  container.addEventListener('dragend', (e) => {
-    if (draggedItem) {
+  // DnD-обробники підв'язуємо один раз, щоб не дублювати слухачі після re-render
+  if (!container.dataset.dndBound) {
+    container.dataset.dndBound = "1";
+    let draggedItem = null;
+
+    container.addEventListener('dragstart', (e) => {
+      const target = e.target?.closest?.('.nav-order-item');
+      if (target && container.contains(target)) {
+        draggedItem = target;
+        draggedItem.style.cursor = 'grabbing';
+        setTimeout(() => target.classList.add('dragging'), 0);
+      }
+    });
+
+    container.addEventListener('dragend', () => {
+      if (!draggedItem) return;
       draggedItem.classList.remove('dragging');
       draggedItem.style.cursor = 'grab';
       draggedItem = null;
-      
+
       const list = window.$("#settings-nav-order-list");
       const newOrder = window.$$(".nav-order-item", list).map(el => el.dataset.navId);
       window.state.settings.navOrder = newOrder;
@@ -696,29 +760,30 @@ function renderNavOrderList() {
       window.reorderNav();
 
       const feedback = window.$("#nav-order-feedback");
-      if(feedback) {
+      if (feedback) {
         feedback.textContent = "Порядок збережено!";
         setTimeout(() => feedback.textContent = "", 2000);
       }
-      
+
       window.$$(".nav-order-item", list).forEach(item => item.style.borderBottom = "1px solid var(--border-color)");
       if (list.lastChild) list.lastChild.style.borderBottom = "none";
-    }
-  });
-  
-  container.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    const target = e.target.closest('.nav-order-item');
-    if (target && target !== draggedItem) {
-      const rect = target.getBoundingClientRect();
-      const mid = rect.top + rect.height / 2;
-      if (e.clientY < mid) {
-        container.insertBefore(draggedItem, target);
-      } else {
-        container.insertBefore(draggedItem, target.nextSibling);
+    });
+
+    container.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!draggedItem) return;
+      const target = e.target?.closest?.('.nav-order-item');
+      if (target && target !== draggedItem) {
+        const rect = target.getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        if (e.clientY < mid) {
+          container.insertBefore(draggedItem, target);
+        } else {
+          container.insertBefore(draggedItem, target.nextSibling);
+        }
       }
-    }
-  });
+    });
+  }
 }
 
 export async function updateGoogleAuthStatusUI() {
