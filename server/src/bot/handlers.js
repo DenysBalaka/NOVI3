@@ -30,6 +30,34 @@ function truncate(s, n) {
   return t.length <= n ? t : t.slice(0, n - 1) + "…";
 }
 
+function logError(op, ctx, err) {
+  console.error("op failed", {
+    op,
+    ...ctx,
+    err: { name: err?.name, message: err?.message, stack: err?.stack },
+  });
+}
+
+function parseTestPayload(payload) {
+  if (payload == null) return null;
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch (e) {
+      return null;
+    }
+  }
+  if (typeof payload === "object") return payload;
+  return null;
+}
+
+function validateTestShape(test) {
+  if (!test || typeof test !== "object") return { ok: false, reason: "empty" };
+  if (!Array.isArray(test.questions)) return { ok: false, reason: "questions_not_array" };
+  if (test.questions.length === 0) return { ok: false, reason: "questions_empty" };
+  return { ok: true };
+}
+
 function radioKeyboard(qi, options) {
   const rows = [];
   (options || []).forEach((opt, oi) => {
@@ -66,10 +94,29 @@ async function sendQuestionPhoto(ctx, caption, dataUrl) {
 async function beginTestSession(ctx, row, meta = {}) {
   const chatId = ctx.chat.id;
   const payload = row.payload_json;
-  const originalTest = typeof payload === "string" ? JSON.parse(payload) : payload;
+  const originalTest = parseTestPayload(payload);
+  const shape = validateTestShape(originalTest);
+  if (!originalTest || !shape.ok) {
+    logError("telegram.beginTestSession.invalid_payload", { chatId, testUuid: row?.id, reason: shape.reason }, new Error("Invalid test payload"));
+    await ctx.reply(
+      "Не вдалося відкрити тест (пошкоджені дані). Зверніться до вчителя або спробуйте інший тест.",
+      replyMainMenu()
+    );
+    clearSession(chatId);
+    return;
+  }
   if (!originalTest.id) originalTest.id = row.external_id;
   if (!originalTest.title) originalTest.title = row.title;
-  const { test, questionMap, optionMaps } = buildRunTest(originalTest);
+  let built;
+  try {
+    built = buildRunTest(originalTest);
+  } catch (e) {
+    logError("telegram.beginTestSession.buildRunTest", { chatId, testUuid: row?.id }, e);
+    await ctx.reply("Не вдалося підготувати тест. Спробуйте інший або зверніться до вчителя.", replyMainMenu());
+    clearSession(chatId);
+    return;
+  }
+  const { test, questionMap, optionMaps } = built;
   const s = getSession(chatId);
   Object.assign(s, {
     step: "question",

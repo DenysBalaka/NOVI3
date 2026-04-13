@@ -39,7 +39,7 @@ function calcScore(test, answers) {
 
   test.questions.forEach((q, qi) => {
     totalQuestions++;
-    const points = q.points || 1;
+    const points = typeof q.points === "number" && Number.isFinite(q.points) && q.points >= 0 ? q.points : 1;
     maxPoints += points;
     let isCorrect = false;
 
@@ -56,7 +56,8 @@ function calcScore(test, answers) {
       const given = new Set(
         Array.isArray(answers[qi]) ? answers[qi] : answers[qi] != null ? [answers[qi]] : []
       );
-      if (right.size === given.size && [...right].every((i) => given.has(i))) isCorrect = true;
+      // Якщо в питанні не задано жодної правильної відповіді — не зараховуємо як правильне.
+      if (right.size > 0 && right.size === given.size && [...right].every((i) => given.has(i))) isCorrect = true;
     }
 
     if (isCorrect) {
