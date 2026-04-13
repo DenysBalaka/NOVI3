@@ -304,8 +304,7 @@ export function renderSettings() {
         </div>
       </div>
 
-      <div class="settings-row">
-        <div class="settings-card settings-card--half">
+      <div class="settings-card">
           <div class="settings-card-header">
             <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));color:#3b82f6;">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -316,6 +315,10 @@ export function renderSettings() {
             </div>
           </div>
           <div class="settings-card-body">
+            <div class="form-group" style="margin:0 0 12px;">
+              <div style="font-size:12px;color:var(--muted);margin:0 0 6px;">Шлях до файлів на цьому комп'ютері</div>
+              <input type="text" class="input" value="${window.esc(window.paths?.root || "")}" readonly style="opacity: 0.7; font-size: 12px;">
+            </div>
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
               <button class="btn" id="btn-backup-create">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -327,24 +330,6 @@ export function renderSettings() {
               </button>
             </div>
           </div>
-        </div>
-
-        <div class="settings-card settings-card--half">
-          <div class="settings-card-header">
-            <div class="export-card-icon" style="background:linear-gradient(135deg,rgba(113,113,122,0.15),rgba(113,113,122,0.05));color:var(--muted);">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            </div>
-            <div class="export-card-title">
-              <h3>Локальна папка даних</h3>
-              <p>Шлях до файлів на цьому комп'ютері</p>
-            </div>
-          </div>
-          <div class="settings-card-body">
-            <div class="form-group">
-              <input type="text" class="input" value="${window.esc(window.paths?.root || "")}" readonly style="opacity: 0.7; font-size: 12px;">
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   `;
