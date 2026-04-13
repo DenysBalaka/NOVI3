@@ -405,7 +405,7 @@ router.get("/attempts", async (req, res) => {
 router.patch("/students/:id/telegram", async (req, res) => {
   const tid = req.teacher.id;
   const studentId = req.params.id;
-  const { telegramUserId, telegramUsername } = req.body || {};
+  const { telegramUserId, telegramUsername, unlink } = req.body || {};
   const tgId =
     telegramUserId != null && String(telegramUserId).trim() !== ""
       ? String(telegramUserId).trim()
@@ -416,12 +416,13 @@ router.patch("/students/:id/telegram", async (req, res) => {
       : null;
   try {
     const r = await pool.query(
-      `UPDATE students s SET telegram_user_id = COALESCE($3::bigint, s.telegram_user_id),
-          telegram_username = COALESCE($4, s.telegram_username)
+      `UPDATE students s SET
+          telegram_user_id = CASE WHEN $5::boolean THEN NULL ELSE COALESCE($3::bigint, s.telegram_user_id) END,
+          telegram_username = CASE WHEN $5::boolean THEN NULL ELSE COALESCE($4, s.telegram_username) END
        FROM classes c
        WHERE s.id = $1::uuid AND s.class_id = c.id AND c.teacher_id = $2::uuid
        RETURNING s.id`,
-      [studentId, tid, tgId, tgUser]
+      [studentId, tid, tgId, tgUser, !!unlink]
     );
     if (r.rows.length === 0) res.status(404).json({ error: "Не знайдено" });
     else res.json({ ok: true });

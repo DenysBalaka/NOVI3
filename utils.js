@@ -135,7 +135,11 @@ export function showTestStartDialog(testTitle, students, className) {
         <label for="test-student-select">Оберіть учня:</label>
         <select id="test-student-select" class="input">
           <option value="">-- Оберіть зі списку --</option>
-          ${studentsInClass.map(s => `<option value="${window.esc(s)}">${window.esc(s)}</option>`).join('')}
+          ${studentsInClass.map(s => {
+            const name = typeof s === "string" ? s : (s && s.fullName != null ? String(s.fullName) : "");
+            const key = String(name || "").trim();
+            return key ? `<option value="${window.esc(key)}">${window.esc(key)}</option>` : "";
+          }).join('')}
           <option value="other_name">-- Ввести ім'я вручну --</option>
         </select>
         <input type="text" id="test-student-name" class="input" placeholder="Або введіть ПІБ..." style="display: none; margin-top: 8px;">
