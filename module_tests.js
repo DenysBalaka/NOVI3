@@ -1925,23 +1925,13 @@ async function sendGradingResultToTelegram(attempt) {
       ? recalcScoreWithGrades(attempt)
       : attempt.score || { correctCount: 0, totalQuestions: 0, earnedPoints: 0, maxPoints: 0 };
   const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
-  const tg = attempt.textGrades || {};
   const teacherComment = attempt.teacherComment || "";
-
-  let textQComments = "";
-  (attempt.questions || []).forEach((q, qi) => {
-    if (!isTextQuestionType(q) || !tg[qi]) return;
-    const grade = tg[qi];
-    const mark = grade.correct ? "✅" : "❌";
-    textQComments += `\n${mark} П.${qi + 1}: ${grade.comment || (grade.correct ? "Правильно" : "Неправильно")}`;
-  });
 
   const msg =
     `📊 <b>Результат тесту: «${escHtmlFrontend(attempt.testTitle)}»</b>\n\n` +
     `Учень: ${escHtmlFrontend(attempt.studentName)}\n` +
     `Бали: ${score.earnedPoints} з ${score.maxPoints} (${pct}%)\n` +
     `Правильних: ${score.correctCount} з ${score.totalQuestions}` +
-    (textQComments ? `\n\n<b>Оцінки за текстові відповіді:</b>${textQComments}` : "") +
     (teacherComment ? `\n\n<b>Коментар вчителя:</b> ${escHtmlFrontend(teacherComment)}` : "");
 
   try {
