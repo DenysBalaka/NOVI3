@@ -1972,7 +1972,10 @@ async function sendGradingResultToTelegram(attempt) {
     return false;
   }
 
-  const score = attempt.score || {};
+  const score =
+    (attempt.questions || []).length > 0
+      ? recalcScoreWithGrades(attempt)
+      : attempt.score || { correctCount: 0, totalQuestions: 0, earnedPoints: 0, maxPoints: 0 };
   const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
   const tg = attempt.textGrades || {};
   const teacherComment = attempt.teacherComment || "";
@@ -2230,8 +2233,16 @@ function openTestReviewTab(attempt) {
       const sendBtn = window.$("#review-send-result-btn");
       if (sendBtn) {
         sendBtn.onclick = async () => {
+          window.$$(".grade-comment-input").forEach((inp) => {
+            const qi = parseInt(inp.dataset.qi, 10);
+            if (textGrades[qi]) textGrades[qi].comment = inp.value;
+          });
           const commentEl = window.$("#review-teacher-comment");
           if (commentEl) attempt.teacherComment = commentEl.value.trim();
+          attempt.textGrades = { ...textGrades };
+          attempt.score = recalcScoreWithGrades(attempt);
+          if (!attempt.gradedAt) attempt.gradedAt = new Date().toISOString();
+          window.saveAttempts();
 
           const statusEl = window.$("#review-grade-status");
           if (statusEl) {
@@ -2246,6 +2257,7 @@ function openTestReviewTab(attempt) {
             statusEl.style.color = "var(--grade-10)";
           }
           sendBtn.disabled = false;
+          renderReview();
         };
       }
     };
