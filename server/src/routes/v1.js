@@ -436,6 +436,22 @@ router.patch("/students/:id/telegram", async (req, res) => {
   }
 });
 
+/**
+ * Прибирає застарілий блок деталізації оцінок за текстові питання (не показуємо учню в Telegram).
+ * Підтримує старі клієнти, що ще додають цей фрагмент до message.
+ */
+function stripTextAnswerGradesSectionFromNotifyMessage(message) {
+  let s = String(message || "");
+  const patterns = [
+    /\r?\n\r?\n<b>Оцінки за текстові відповіді:<\/b>[\s\S]*?(?=\r?\n\r?\n<b>Коментар вчителя:|\s*$)/gi,
+    /\r?\n\r?\n<b>Оцінки за текстові відповіді:[\s\S]*?(?=\r?\n\r?\n<b>Коментар вчителя:|\s*$)/gi,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/\s+$/, "");
+}
+
 /** POST /api/v1/notify — надіслати повідомлення учню в Telegram після оцінювання */
 router.post("/notify", async (req, res) => {
   const { chatId, message } = req.body || {};
@@ -448,12 +464,13 @@ router.post("/notify", async (req, res) => {
     res.status(503).json({ error: "TELEGRAM_BOT_TOKEN не налаштовано на сервері" });
     return;
   }
+  const textOut = stripTextAnswerGradesSectionFromNotifyMessage(message);
   try {
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     const tgRes = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" }),
+      body: JSON.stringify({ chat_id: chatId, text: textOut, parse_mode: "HTML" }),
     });
     const data = await tgRes.json();
     if (!data.ok) {
