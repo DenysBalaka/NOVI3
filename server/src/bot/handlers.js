@@ -523,10 +523,6 @@ async function showTestPicker(ctx) {
 
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   await ctx.reply("Оберіть тест:", Markup.inlineKeyboard(rows));
-  await ctx.reply(
-    `Кнопка меню внизу: «${MENU_BTN_CHOOSE_TEST}» — знову відкрити список.`,
-    replyMainMenu()
-  );
   const s = getSession(chatId);
   s.step = "pick";
   s.chatId = chatId;

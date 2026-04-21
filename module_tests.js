@@ -118,6 +118,33 @@ async function pushTestToCloud(test) {
   });
 }
 
+/**
+ * Якщо підключена хмара — видаляє тест у БД сервера (Telegram більше не покаже тест і призначення).
+ * Без хмари — нічого не робить. 404 трактуємо як «уже видалено».
+ */
+async function deleteTestFromCloudIfConfigured(testExternalId) {
+  const ext = String(testExternalId || "").trim();
+  if (!ext) return;
+  const baseUrl =
+    typeof window.getCloudBaseUrl === "function"
+      ? window.getCloudBaseUrl()
+      : (window.state.settings?.cloudApiBaseUrl || "").trim();
+  if (!baseUrl || !(window.state.settings?.cloudApiKey || "").trim()) return;
+  const path = `tests/${encodeURIComponent(ext)}`;
+  let res;
+  try {
+    res = await window.tj.cloudApi({ method: "DELETE", path, body: null });
+  } catch (e) {
+    console.error("tests.deleteFromCloud failed", { testExternalId: ext, err: e?.message, stack: e?.stack });
+    throw new Error("Не вдалося зв’язатися з хмарою. Перевірте мережу та спробуйте ще раз.");
+  }
+  if (!res.error) return;
+  if (res.status === 404) return;
+  const msg = res.error || `HTTP ${res.status || "?"}`;
+  console.error("tests.deleteFromCloud failed", { testExternalId: ext, status: res.status, message: msg });
+  throw new Error(msg);
+}
+
 /** Питання з відкритою текстовою відповіддю (для оцінювання вчителем). */
 function isTextQuestionType(q) {
   const t = String(q && q.type != null ? q.type : "").toLowerCase().trim();
@@ -1270,7 +1297,18 @@ function populateSavedTestsList() {
 
       window.$(".btn-del-test", tr).onclick = async () => {
         if (await window.showCustomConfirm("Видалення", `Видалити тест "${test.title}"?`, "Видалити", "Скасувати", true)) {
-          window.state.tests = window.state.tests.filter(t => t.id !== test.id);
+          try {
+            await deleteTestFromCloudIfConfigured(test.id);
+          } catch (e) {
+            await window.showCustomAlert(
+              "Хмара",
+              `${(e && e.message) || String(e)}
+
+Тест не видалено локально: спочатку усуньте помилку або від’єднайте хмару в Налаштуваннях, якщо потрібно видалити лише на цьому ПК.`
+            );
+            return;
+          }
+          window.state.tests = window.state.tests.filter((t) => t.id !== test.id);
           window.saveTests();
           render();
         }
