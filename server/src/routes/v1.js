@@ -436,4 +436,36 @@ router.patch("/students/:id/telegram", async (req, res) => {
   }
 });
 
+/** POST /api/v1/notify — надіслати повідомлення учню в Telegram після оцінювання */
+router.post("/notify", async (req, res) => {
+  const { chatId, message } = req.body || {};
+  if (!chatId || !message) {
+    res.status(400).json({ error: "Потрібні chatId та message" });
+    return;
+  }
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    res.status(503).json({ error: "TELEGRAM_BOT_TOKEN не налаштовано на сервері" });
+    return;
+  }
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const tgRes = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" }),
+    });
+    const data = await tgRes.json();
+    if (!data.ok) {
+      console.error("telegram.sendMessage failed", { chatId, error: data.description });
+      res.status(502).json({ error: data.description || "Telegram API error" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("notify failed", { chatId, err: e.message });
+    res.status(500).json({ error: "Помилка надсилання повідомлення" });
+  }
+});
+
 module.exports = router;

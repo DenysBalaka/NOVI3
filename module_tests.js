@@ -118,6 +118,26 @@ async function pushTestToCloud(test) {
   });
 }
 
+/** Питання з відкритою текстовою відповіддю (для оцінювання вчителем). */
+function isTextQuestionType(q) {
+  const t = String(q && q.type != null ? q.type : "").toLowerCase().trim();
+  return t === "text" || t === "textarea" || t === "open";
+}
+
+async function postAssignmentWithAutoPushTest(body, testExternalId) {
+  try {
+    await window.callCloudApi("POST", "assignments", body);
+  } catch (e) {
+    const msg = e.message || String(e);
+    const notOnCloud = /тест не знайдено|not found|404/i.test(msg);
+    if (!notOnCloud) throw e;
+    const test = (window.state.tests || []).find((t) => t.id === testExternalId);
+    if (!test) throw e;
+    await pushTestToCloud(test);
+    await window.callCloudApi("POST", "assignments", body);
+  }
+}
+
 async function refreshCloudRosterMapFromServer() {
   const data = await window.callCloudApi("GET", "roster");
   const byClassName = {};
@@ -227,7 +247,11 @@ function renderTelegramTestsView(container) {
     <div class="output-box" style="margin-top:16px;">
       <div class="output-box-header">
         <h3>Призначення доступу до тесту</h3>
+        <button type="button" class="btn ghost" id="tg-roster-sync-btn" ${cloudOk ? "" : "disabled"} style="min-height:36px;font-size:13px;">
+          Синхронізувати класи з журналу
+        </button>
       </div>
+      <p id="tg-roster-hint" style="margin:0 12px 10px;font-size:13px;color:var(--text-secondary);"></p>
       <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
         <div class="form-group" style="min-width:220px;">
           <label for="tg-pick-test">Тест</label>
@@ -378,10 +402,58 @@ function renderTelegramTestsView(container) {
   }
 
   rosterSelects();
-  const rmap = window.state.settings.cloudRosterMap || {};
+  const rosterHint = window.$("#tg-roster-hint");
+  const updateRosterHint = () => {
+    if (!rosterHint) return;
+    const map = window.state.settings.cloudRosterMap || {};
+    const n = Object.keys(map).length;
+    if (!cloudOk) rosterHint.textContent = "";
+    else if (n === 0) {
+      rosterHint.innerHTML =
+        "У хмарі ще немає списку класів. Натисніть <b>«Синхронізувати класи з журналу»</b> — інакше не вдасться обрати клас або учня для призначення.";
+    } else {
+      rosterHint.textContent =
+        "Після змін у журналі знову натисніть «Синхронізувати класи з журналу». Тест має бути опублікований у боті (галочки нижче), інакше учні не побачать його в списку.";
+    }
+  };
+  updateRosterHint();
+
+  const rosterSyncBtn = window.$("#tg-roster-sync-btn");
+  if (rosterSyncBtn) {
+    rosterSyncBtn.onclick = async () => {
+      if (!cloudOk) return;
+      rosterSyncBtn.disabled = true;
+      if (msgEl) {
+        msgEl.textContent = "Синхронізація журналу…";
+        msgEl.style.color = "var(--text-secondary)";
+      }
+      try {
+        await syncRosterToCloud();
+        rosterSelects();
+        const pc2 = window.$("#tg-pick-class");
+        const stud2 = window.$("#tg-pick-student");
+        if (pc2 && pc2.value) fillStudentsForClass(pc2.value, stud2, window.state.settings.cloudRosterMap || {});
+        updateRosterHint();
+        if (msgEl) {
+          msgEl.textContent = "Журнал синхронізовано з хмарою.";
+          msgEl.style.color = "var(--grade-10)";
+        }
+      } catch (e) {
+        if (msgEl) {
+          msgEl.textContent = e.message || String(e);
+          msgEl.style.color = "var(--danger)";
+        }
+        await window.showCustomAlert("Помилка", e.message || String(e));
+      } finally {
+        rosterSyncBtn.disabled = false;
+      }
+    };
+  }
+
   const pc = window.$("#tg-pick-class");
   if (pc) {
-    pc.onchange = () => fillStudentsForClass(pc.value, window.$("#tg-pick-student"), rmap);
+    pc.onchange = () =>
+      fillStudentsForClass(pc.value, window.$("#tg-pick-student"), window.state.settings.cloudRosterMap || {});
   }
 
   window.$("#tg-add-class-assign").onclick = async () => {
@@ -392,11 +464,14 @@ function renderTelegramTestsView(container) {
       return;
     }
     try {
-      await window.callCloudApi("POST", "assignments", {
-        testExternalId: tid,
-        targetType: "class",
-        classId: cid,
-      });
+      await postAssignmentWithAutoPushTest(
+        {
+          testExternalId: tid,
+          targetType: "class",
+          classId: cid,
+        },
+        tid
+      );
       await refreshAssignmentList();
     } catch (e) {
       await window.showCustomAlert("Помилка", e.message || String(e));
@@ -411,11 +486,14 @@ function renderTelegramTestsView(container) {
       return;
     }
     try {
-      await window.callCloudApi("POST", "assignments", {
-        testExternalId: tid,
-        targetType: "user",
-        studentId: sid,
-      });
+      await postAssignmentWithAutoPushTest(
+        {
+          testExternalId: tid,
+          targetType: "user",
+          studentId: sid,
+        },
+        tid
+      );
       await refreshAssignmentList();
     } catch (e) {
       await window.showCustomAlert("Помилка", e.message || String(e));
@@ -928,6 +1006,10 @@ function renderResultsView(container) {
       </div>
     </div>
 
+    <p style="margin:0 0 10px;font-size:13px;color:var(--text-secondary);max-width:920px;">
+      Спроби з текстовими відповідями потребують оцінювання: відкрийте рядок через «Оцінити» / «Переглянути», поставте оцінки за текст, збережіть і за потреби надішліть результат учню в Telegram.
+    </p>
+
     <div class="config-box" style="gap: 12px;">
       <div class="form-group" style="min-width: 180px;">
         <label for="res-filter-test">Тест</label>
@@ -992,19 +1074,27 @@ function renderResultsView(container) {
     filtered.forEach((attempt, idx) => {
       const pct = attempt.score.maxPoints > 0 ? Math.round((attempt.score.earnedPoints / attempt.score.maxPoints) * 100) : 0;
       const pctColor = pct >= 75 ? 'var(--grade-10)' : pct >= 50 ? 'var(--grade-7)' : 'var(--grade-1)';
+      const hasText = attemptHasTextQuestions(attempt);
+      const fullyGraded = attemptIsFullyGraded(attempt);
+      const needsGrading = hasText && !fullyGraded;
       const tr = document.createElement("tr");
       const dispDate = formatAttemptDisplayDate(attempt);
+
+      const statusBadge = needsGrading
+        ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:rgba(251,191,36,0.15);color:#d97706;font-size:11px;font-weight:600;margin-left:4px;">Очікує оцінки</span>'
+        : (hasText && fullyGraded ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:rgba(74,222,128,0.15);color:var(--grade-10);font-size:11px;font-weight:600;margin-left:4px;">Оцінено</span>' : '');
+
       tr.innerHTML = `
         <td>${window.esc(attempt.testTitle)}</td>
         <td>${window.esc(attempt.studentName)}</td>
         <td style="font-size:13px;">${window.esc(dispDate)}</td>
-        <td>${attempt.score.earnedPoints} / ${attempt.score.maxPoints}</td>
+        <td>${attempt.score.earnedPoints} / ${attempt.score.maxPoints}${statusBadge}</td>
         <td style="font-weight:700;color:${pctColor};">${pct}%</td>
         <td>
           <div class="form-buttons-group" style="gap:5px;">
-            <button class="btn ghost btn-review-attempt" style="padding:6px 10px;font-size:13px;">
+            <button class="btn ${needsGrading ? '' : 'ghost'} btn-review-attempt" style="padding:6px 10px;font-size:13px;">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              Переглянути
+              ${needsGrading ? 'Оцінити' : 'Переглянути'}
             </button>
             <button class="btn danger ghost btn-del-attempt" style="padding:6px 10px;font-size:13px;">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -1310,7 +1400,7 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
     let optionsHTML = "";
     const types = [
       { val: 'radio', label: 'Один варіант' },
-      { val: 'check', label: 'Декілька варіантів' },
+      ...(q.type === 'check' ? [{ val: 'check', label: 'Декілька варіантів (застаріле)' }] : []),
       { val: 'text', label: 'Текстова відповідь' },
       { val: 'matching', label: 'Відповідність' }
     ];
@@ -1827,13 +1917,15 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
 // === 4. ОБРОБКА РЕЗУЛЬТАТІВ ===
 
 async function processTestResults(runTest, originalTest, studentName, answers, tabId, questionMap, optionMaps) {
-  const score = calcScore(runTest, answers);
+  const score = calcScore(runTest, answers, {});
+  const completedAt = new Date();
 
   const attempt = {
     testId: originalTest.id,
     testTitle: originalTest.title,
     studentName: studentName,
-    date: new Date().toLocaleString("uk-UA"),
+    date: completedAt.toLocaleString("uk-UA"),
+    completedAtIso: completedAt.toISOString(),
     score,
     answers,
     questions: runTest.questions,
@@ -1856,119 +1948,322 @@ async function processTestResults(runTest, originalTest, studentName, answers, t
 
 // === 5. ПЕРЕГЛЯД РЕЗУЛЬТАТІВ ===
 
+function attemptHasTextQuestions(attempt) {
+  return (attempt.questions || []).some((q) => isTextQuestionType(q));
+}
+
+function attemptIsFullyGraded(attempt) {
+  if (!attemptHasTextQuestions(attempt)) return true;
+  const tg = attempt.textGrades || {};
+  return (attempt.questions || []).every((q, qi) => !isTextQuestionType(q) || tg[qi] != null);
+}
+
+function recalcScoreWithGrades(attempt) {
+  const questions = attempt.questions || [];
+  const answers = attempt.answers || {};
+  const textGrades = attempt.textGrades || {};
+  return calcScore({ questions }, answers, textGrades);
+}
+
+async function sendGradingResultToTelegram(attempt) {
+  const chatId = attempt.telegramChatId;
+  if (!chatId) {
+    await window.showCustomAlert("Помилка", "У цього результату немає прив'язки до Telegram чату.");
+    return false;
+  }
+
+  const score = attempt.score || {};
+  const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
+  const tg = attempt.textGrades || {};
+  const teacherComment = attempt.teacherComment || "";
+
+  let textQComments = "";
+  (attempt.questions || []).forEach((q, qi) => {
+    if (!isTextQuestionType(q) || !tg[qi]) return;
+    const grade = tg[qi];
+    const mark = grade.correct ? "✅" : "❌";
+    textQComments += `\n${mark} П.${qi + 1}: ${grade.comment || (grade.correct ? "Правильно" : "Неправильно")}`;
+  });
+
+  const msg =
+    `📊 <b>Результат тесту: «${escHtmlFrontend(attempt.testTitle)}»</b>\n\n` +
+    `Учень: ${escHtmlFrontend(attempt.studentName)}\n` +
+    `Бали: ${score.earnedPoints} з ${score.maxPoints} (${pct}%)\n` +
+    `Правильних: ${score.correctCount} з ${score.totalQuestions}` +
+    (textQComments ? `\n\n<b>Оцінки за текстові відповіді:</b>${textQComments}` : "") +
+    (teacherComment ? `\n\n<b>Коментар вчителя:</b> ${escHtmlFrontend(teacherComment)}` : "");
+
+  try {
+    await window.callCloudApi("POST", "notify", { chatId, message: msg });
+    return true;
+  } catch (e) {
+    console.error("sendGradingResult failed:", e);
+    await window.showCustomAlert("Помилка", "Не вдалося надіслати повідомлення: " + (e.message || e));
+    return false;
+  }
+}
+
+function escHtmlFrontend(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function openTestReviewTab(attempt) {
   const tabId = `test-review-${attempt.testId}-${Date.now()}`;
   const tabTitle = `Результат: ${(attempt.studentName || '').split(' ')[0]}`;
 
   const questions = attempt.questions || [];
   const answers = attempt.answers || {};
-  const score = attempt.score || { correctCount: 0, totalQuestions: 0, earnedPoints: 0, maxPoints: 0 };
-  const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
-  const circleClass = pct >= 75 ? 'good' : pct >= 50 ? 'ok' : 'bad';
+  const hasText = attemptHasTextQuestions(attempt);
+  const textGrades = attempt.textGrades ? { ...attempt.textGrades } : {};
+
+  const recalcAndDisplay = () => {
+    const score = hasText ? recalcScoreWithGrades({ ...attempt, textGrades }) : (attempt.score || { correctCount: 0, totalQuestions: 0, earnedPoints: 0, maxPoints: 0 });
+    const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
+    const circleClass = pct >= 75 ? 'good' : pct >= 50 ? 'ok' : 'bad';
+    return { score, pct, circleClass };
+  };
+
+  const initialCalc = recalcAndDisplay();
+  let currentScore = initialCalc.score;
 
   window.openTab(tabId, tabTitle, () => {
-    let questionsHTML = "";
+    const renderReview = () => {
+      const calc = recalcAndDisplay();
+      currentScore = calc.score;
+      const { score, pct, circleClass } = calc;
+      const isGraded = attemptIsFullyGraded({ ...attempt, textGrades });
 
-    questions.forEach((q, qi) => {
-      const pts = q.points || 1;
-      let isCorrect = false;
-      let detailHTML = "";
+      let questionsHTML = "";
 
-      if (q.type === 'radio' || q.type === 'check') {
-        const right = new Set((q.options || []).map((o, i) => o.correct ? i : null).filter(x => x !== null));
-        const given = new Set(Array.isArray(answers[qi]) ? answers[qi] : (answers[qi] != null ? [answers[qi]] : []));
-        isCorrect = right.size === given.size && [...right].every(i => given.has(i));
+      questions.forEach((q, qi) => {
+        const pts = q.points || 1;
+        let isCorrect = false;
+        let detailHTML = "";
 
-        (q.options || []).forEach((opt, oi) => {
-          const picked = given.has(oi);
-          const correct = right.has(oi);
-          let cls = '';
-          let icon = '';
-          if (picked && correct) { cls = 'review-option correct-answer student-pick'; icon = '✓'; }
-          else if (picked && !correct) { cls = 'review-option wrong-answer student-pick'; icon = '✕'; }
-          else if (!picked && correct) { cls = 'review-option correct-answer'; icon = '✓ (правильна)'; }
-          else { cls = 'review-option'; icon = ''; }
+        if (q.type === 'radio' || q.type === 'check') {
+          const right = new Set((q.options || []).map((o, i) => o.correct ? i : null).filter(x => x !== null));
+          const given = new Set(Array.isArray(answers[qi]) ? answers[qi] : (answers[qi] != null ? [answers[qi]] : []));
+          isCorrect = right.size === given.size && [...right].every(i => given.has(i));
 
-          detailHTML += `<div class="${cls}"><span>${icon ? icon + ' ' : ''}${window.esc(opt.text)}</span></div>`;
-        });
+          (q.options || []).forEach((opt, oi) => {
+            const picked = given.has(oi);
+            const correct = right.has(oi);
+            let cls = '';
+            let icon = '';
+            if (picked && correct) { cls = 'review-option correct-answer student-pick'; icon = '✓'; }
+            else if (picked && !correct) { cls = 'review-option wrong-answer student-pick'; icon = '✕'; }
+            else if (!picked && correct) { cls = 'review-option correct-answer'; icon = '✓ (правильна)'; }
+            else { cls = 'review-option'; icon = ''; }
+            detailHTML += `<div class="${cls}"><span>${icon ? icon + ' ' : ''}${window.esc(opt.text)}</span></div>`;
+          });
 
-      } else if (q.type === 'text') {
-        isCorrect = answers[qi] && String(answers[qi]).trim() ? true : false;
-        detailHTML = `<div class="review-option student-pick"><span>Відповідь: ${window.esc(String(answers[qi] || '(порожньо)'))}</span></div>`;
+        } else if (isTextQuestionType(q)) {
+          const grade = textGrades[qi];
+          const graded = grade != null;
+          isCorrect = graded && grade.correct;
 
-      } else if (q.type === 'matching') {
-        const pairs = q.pairs || [];
-        const givenArr = answers[qi] || [];
-        let allCorrect = true;
-        pairs.forEach((pair, pi) => {
-          const studentAnswer = givenArr[pi] || '';
-          const correct = studentAnswer === pair.right;
-          if (!correct) allCorrect = false;
-          detailHTML += `
-            <div class="matching-pair" style="margin:4px 0;">
-              <div class="matching-left">${window.esc(pair.left)}</div>
-              <span class="matching-arrow">→</span>
-              <div style="flex:1;padding:8px 12px;border-radius:var(--radius-sm);border:1px solid ${correct ? 'var(--grade-10)' : 'var(--grade-1)'};background:${correct ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)'};">
-                ${window.esc(studentAnswer || '(не обрано)')}
-                ${!correct ? `<span style="color:var(--grade-10);margin-left:8px;font-size:12px;">→ ${window.esc(pair.right)}</span>` : ''}
-              </div>
-            </div>`;
-        });
-        isCorrect = allCorrect;
-      }
+          detailHTML = `
+            <div class="review-option student-pick" style="margin-bottom:8px;">
+              <span>Відповідь: ${window.esc(String(answers[qi] || '(порожньо)'))}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+              <span style="font-size:13px;font-weight:600;color:var(--text-secondary);">Оцінка:</span>
+              <button class="btn ${graded && grade.correct ? '' : 'ghost'} btn-grade-correct" data-qi="${qi}"
+                style="padding:4px 12px;font-size:13px;min-height:30px;${graded && grade.correct ? 'background:var(--grade-10);color:#fff;border-color:var(--grade-10);' : ''}">
+                ✓ Правильно
+              </button>
+              <button class="btn ${graded && !grade.correct ? 'danger' : 'ghost'} btn-grade-wrong" data-qi="${qi}"
+                style="padding:4px 12px;font-size:13px;min-height:30px;">
+                ✕ Неправильно
+              </button>
+            </div>
+            <div class="form-group" style="margin-top:8px;">
+              <input class="input grade-comment-input" data-qi="${qi}" placeholder="Коментар до оцінки (необов'язково)..."
+                value="${window.esc(grade?.comment || '')}" style="font-size:13px;">
+            </div>
+          `;
 
-      const badgeClass = isCorrect ? 'correct' : 'wrong';
-      const badgeText = isCorrect ? `+${pts} бал.` : '0 бал.';
+        } else if (q.type === 'matching') {
+          const pairs = q.pairs || [];
+          const givenArr = answers[qi] || [];
+          let allCorrect = true;
+          pairs.forEach((pair, pi) => {
+            const studentAnswer = givenArr[pi] || '';
+            const correct = studentAnswer === pair.right;
+            if (!correct) allCorrect = false;
+            detailHTML += `
+              <div class="matching-pair" style="margin:4px 0;">
+                <div class="matching-left">${window.esc(pair.left)}</div>
+                <span class="matching-arrow">→</span>
+                <div style="flex:1;padding:8px 12px;border-radius:var(--radius-sm);border:1px solid ${correct ? 'var(--grade-10)' : 'var(--grade-1)'};background:${correct ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)'};">
+                  ${window.esc(studentAnswer || '(не обрано)')}
+                  ${!correct ? `<span style="color:var(--grade-10);margin-left:8px;font-size:12px;">→ ${window.esc(pair.right)}</span>` : ''}
+                </div>
+              </div>`;
+          });
+          isCorrect = allCorrect;
+        }
 
-      questionsHTML += `
-        <div class="review-question ${badgeClass}">
-          <div class="review-question-header">
-            <div><b>Питання ${qi + 1}:</b> ${window.esc(q.text)}</div>
-            <span class="review-badge ${badgeClass}">${badgeText}</span>
+        const badgeClass = isTextQuestionType(q) && textGrades[qi] == null ? 'pending' : (isCorrect ? 'correct' : 'wrong');
+        const badgeText = isTextQuestionType(q) && textGrades[qi] == null
+          ? 'Очікує оцінки'
+          : (isCorrect ? `+${pts} бал.` : '0 бал.');
+
+        questionsHTML += `
+          <div class="review-question ${badgeClass}">
+            <div class="review-question-header">
+              <div><b>Питання ${qi + 1}:</b> ${window.esc(q.text)}</div>
+              <span class="review-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            ${q.image ? `<img src="${q.image}" style="max-width:300px;max-height:200px;border-radius:4px;margin-bottom:8px;border:1px solid var(--border-color);">` : ''}
+            ${detailHTML}
           </div>
-          ${q.image ? `<img src="${q.image}" style="max-width:300px;max-height:200px;border-radius:4px;margin-bottom:8px;border:1px solid var(--border-color);">` : ''}
-          ${detailHTML}
+        `;
+      });
+
+      const hasTelegramChat = !!attempt.telegramChatId;
+
+      window.areaEl.innerHTML = `
+        <div style="max-width:800px;margin:0 auto;">
+          <div class="review-summary">
+            <div class="review-score-circle ${circleClass}">
+              ${pct}%
+              <span>${score.earnedPoints}/${score.maxPoints}</span>
+            </div>
+            <div class="review-meta">
+              <h3>${window.esc(attempt.testTitle)}</h3>
+              <p><b>Учень:</b> ${window.esc(attempt.studentName)}</p>
+              ${attempt.guestAge != null ? `<p><b>Вік:</b> ${window.esc(String(attempt.guestAge))}</p>` : ""}
+              ${attempt.guestGrade ? `<p><b>Клас/курс:</b> ${window.esc(attempt.guestGrade)}</p>` : ""}
+              <p><b>Дата:</b> ${window.esc(formatAttemptDisplayDate(attempt))}</p>
+              <p>Правильних: ${score.correctCount} з ${score.totalQuestions}${hasText && !isGraded ? ' (текстові очікують оцінки)' : ''}</p>
+              ${attempt.gradedAt ? `<p style="color:var(--grade-10);">Оцінено: ${new Date(attempt.gradedAt).toLocaleString("uk-UA")}</p>` : ''}
+            </div>
+            <button class="btn ghost" id="review-close-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Закрити
+            </button>
+          </div>
+
+          ${questionsHTML}
+
+          ${hasText ? `
+            <div style="margin-top:20px;padding:16px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-light);">
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button class="btn" id="review-save-grades-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  Зберегти оцінки
+                </button>
+                ${hasTelegramChat ? `
+                  <button class="btn ghost" id="review-send-result-btn" ${isGraded ? '' : 'disabled title="Спочатку оцініть усі текстові відповіді"'}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2L2 12l5.5 2L19 6l-8.5 6v6l3-4"/></svg>
+                    Надіслати результат учню
+                  </button>
+                ` : ''}
+                <span id="review-grade-status" style="font-size:13px;color:var(--text-secondary);"></span>
+              </div>
+              ${hasTelegramChat && isGraded ? `
+                <div class="form-group" style="margin-top:12px;">
+                  <label for="review-teacher-comment">Загальний коментар (необов'язково)</label>
+                  <textarea class="input" id="review-teacher-comment" placeholder="Додайте коментар для учня..."
+                    style="min-height:60px;font-size:13px;">${window.esc(attempt.teacherComment || '')}</textarea>
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
         </div>
       `;
-    });
 
-    window.areaEl.innerHTML = `
-      <div style="max-width:800px;margin:0 auto;">
-        <div class="review-summary">
-          <div class="review-score-circle ${circleClass}">
-            ${pct}%
-            <span>${score.earnedPoints}/${score.maxPoints}</span>
-          </div>
-          <div class="review-meta">
-            <h3>${window.esc(attempt.testTitle)}</h3>
-            <p><b>Учень:</b> ${window.esc(attempt.studentName)}</p>
-            ${attempt.guestAge != null ? `<p><b>Вік:</b> ${window.esc(String(attempt.guestAge))}</p>` : ""}
-            ${attempt.guestGrade ? `<p><b>Клас/курс:</b> ${window.esc(attempt.guestGrade)}</p>` : ""}
-            <p><b>Дата:</b> ${window.esc(formatAttemptDisplayDate(attempt))}</p>
-            <p>Правильних: ${score.correctCount} з ${score.totalQuestions}</p>
-          </div>
-          <button class="btn ghost" id="review-close-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            Закрити
-          </button>
-        </div>
+      window.$("#review-close-btn").onclick = () => window.closeTab(tabId);
 
-        ${questionsHTML}
-      </div>
-    `;
+      window.$$(".btn-grade-correct").forEach(btn => {
+        btn.onclick = () => {
+          const qi = parseInt(btn.dataset.qi, 10);
+          const commentInput = window.$(`.grade-comment-input[data-qi="${qi}"]`);
+          textGrades[qi] = { correct: true, comment: commentInput?.value || '' };
+          renderReview();
+        };
+      });
 
-    window.$("#review-close-btn").onclick = () => window.closeTab(tabId);
+      window.$$(".btn-grade-wrong").forEach(btn => {
+        btn.onclick = () => {
+          const qi = parseInt(btn.dataset.qi, 10);
+          const commentInput = window.$(`.grade-comment-input[data-qi="${qi}"]`);
+          textGrades[qi] = { correct: false, comment: commentInput?.value || '' };
+          renderReview();
+        };
+      });
+
+      window.$$(".grade-comment-input").forEach(inp => {
+        inp.oninput = () => {
+          const qi = parseInt(inp.dataset.qi, 10);
+          if (textGrades[qi]) {
+            textGrades[qi].comment = inp.value;
+          }
+        };
+      });
+
+      const saveBtn = window.$("#review-save-grades-btn");
+      if (saveBtn) {
+        saveBtn.onclick = async () => {
+          window.$$(".grade-comment-input").forEach(inp => {
+            const qi = parseInt(inp.dataset.qi, 10);
+            if (textGrades[qi]) textGrades[qi].comment = inp.value;
+          });
+
+          attempt.textGrades = { ...textGrades };
+          attempt.score = recalcScoreWithGrades(attempt);
+          attempt.gradedAt = new Date().toISOString();
+          const commentEl = window.$("#review-teacher-comment");
+          if (commentEl) attempt.teacherComment = commentEl.value.trim();
+
+          window.saveAttempts();
+          const statusEl = window.$("#review-grade-status");
+          if (statusEl) {
+            statusEl.textContent = "Оцінки збережено.";
+            statusEl.style.color = "var(--grade-10)";
+          }
+          renderReview();
+        };
+      }
+
+      const sendBtn = window.$("#review-send-result-btn");
+      if (sendBtn) {
+        sendBtn.onclick = async () => {
+          const commentEl = window.$("#review-teacher-comment");
+          if (commentEl) attempt.teacherComment = commentEl.value.trim();
+
+          const statusEl = window.$("#review-grade-status");
+          if (statusEl) {
+            statusEl.textContent = "Надсилання…";
+            statusEl.style.color = "var(--text-secondary)";
+          }
+          sendBtn.disabled = true;
+
+          const ok = await sendGradingResultToTelegram(attempt);
+          if (ok && statusEl) {
+            statusEl.textContent = "Результат надіслано учню в Telegram.";
+            statusEl.style.color = "var(--grade-10)";
+          }
+          sendBtn.disabled = false;
+        };
+      }
+    };
+
+    renderReview();
   });
 }
 
 
 // === 6. ПІДРАХУНОК БАЛІВ ===
 
-export function calcScore(test, answers) {
+export function calcScore(test, answers, textGrades) {
   let correctCount = 0;
   let totalQuestions = 0;
   let earnedPoints = 0;
   let maxPoints = 0;
+  let hasTextQuestions = false;
+  let pendingTextCount = 0;
 
   test.questions.forEach((q, qi) => {
     totalQuestions++;
@@ -1976,8 +2271,13 @@ export function calcScore(test, answers) {
     maxPoints += points;
     let isCorrect = false;
 
-    if (q.type === "text") {
-      isCorrect = answers[qi] && String(answers[qi]).trim() ? true : false;
+    if (isTextQuestionType(q)) {
+      hasTextQuestions = true;
+      if (textGrades && textGrades[qi] != null) {
+        isCorrect = !!textGrades[qi].correct;
+      } else {
+        pendingTextCount++;
+      }
     } else if (q.type === "matching") {
       const pairs = q.pairs || [];
       const givenArr = answers[qi] || [];
@@ -1997,7 +2297,7 @@ export function calcScore(test, answers) {
     }
   });
 
-  return { correctCount, totalQuestions, earnedPoints, maxPoints };
+  return { correctCount, totalQuestions, earnedPoints, maxPoints, hasTextQuestions, pendingTextCount };
 }
 
 

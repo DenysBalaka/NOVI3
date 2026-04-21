@@ -1,5 +1,12 @@
 // Спільна логіка з electron/telegram_helpers.js та module_tests.js
 
+function isTextQuestion(q) {
+  const t = String(q && q.type != null ? q.type : "")
+    .toLowerCase()
+    .trim();
+  return t === "text" || t === "textarea" || t === "open";
+}
+
 function shuffleArray(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -36,6 +43,8 @@ function calcScore(test, answers) {
   let totalQuestions = 0;
   let earnedPoints = 0;
   let maxPoints = 0;
+  let hasTextQuestions = false;
+  let pendingTextCount = 0;
 
   test.questions.forEach((q, qi) => {
     totalQuestions++;
@@ -43,8 +52,9 @@ function calcScore(test, answers) {
     maxPoints += points;
     let isCorrect = false;
 
-    if (q.type === "text") {
-      isCorrect = !!(answers[qi] && String(answers[qi]).trim());
+    if (isTextQuestion(q)) {
+      hasTextQuestions = true;
+      pendingTextCount++;
     } else if (q.type === "matching") {
       const pairs = q.pairs || [];
       const givenArr = answers[qi] || [];
@@ -56,7 +66,6 @@ function calcScore(test, answers) {
       const given = new Set(
         Array.isArray(answers[qi]) ? answers[qi] : answers[qi] != null ? [answers[qi]] : []
       );
-      // Якщо в питанні не задано жодної правильної відповіді — не зараховуємо як правильне.
       if (right.size > 0 && right.size === given.size && [...right].every((i) => given.has(i))) isCorrect = true;
     }
 
@@ -66,7 +75,7 @@ function calcScore(test, answers) {
     }
   });
 
-  return { correctCount, totalQuestions, earnedPoints, maxPoints };
+  return { correctCount, totalQuestions, earnedPoints, maxPoints, hasTextQuestions, pendingTextCount };
 }
 
 function dataUrlToBuffer(dataUrl) {

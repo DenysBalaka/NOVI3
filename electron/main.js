@@ -104,7 +104,7 @@ function normalizeAiGeneratedTest(obj, { wantImages }) {
   for (const q of qs) {
     if (!q || typeof q !== "object") continue;
     const type = String(q.type || "radio").trim();
-    if (!["radio", "check", "matching"].includes(type)) continue;
+    if (!["radio", "check", "matching", "text"].includes(type)) continue;
     const text = String(q.text || "").trim();
     if (!text) continue;
 
@@ -114,6 +114,11 @@ function normalizeAiGeneratedTest(obj, { wantImages }) {
 
     const cap = String(q.imageCaption || q.image_hint || q.imageHint || "").trim();
     if (wantImages && cap) nq.image = toDataSvgCaption(cap);
+
+    if (type === "text") {
+      out.questions.push(nq);
+      continue;
+    }
 
     if (type === "radio" || type === "check") {
       const opts = Array.isArray(q.options) ? q.options : [];

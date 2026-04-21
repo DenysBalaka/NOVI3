@@ -1,5 +1,12 @@
 // Спільна логіка з module_tests.js: shuffle та підрахунок балів для бота в main process.
 
+function isTextQuestion(q) {
+  const t = String(q && q.type != null ? q.type : "")
+    .toLowerCase()
+    .trim();
+  return t === "text" || t === "textarea" || t === "open";
+}
+
 function shuffleArray(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -39,6 +46,8 @@ function calcScore(test, answers) {
   let totalQuestions = 0;
   let earnedPoints = 0;
   let maxPoints = 0;
+  let hasTextQuestions = false;
+  let pendingTextCount = 0;
 
   test.questions.forEach((q, qi) => {
     totalQuestions++;
@@ -46,8 +55,9 @@ function calcScore(test, answers) {
     maxPoints += points;
     let isCorrect = false;
 
-    if (q.type === "text") {
-      isCorrect = !!(answers[qi] && String(answers[qi]).trim());
+    if (isTextQuestion(q)) {
+      hasTextQuestions = true;
+      pendingTextCount++;
     } else if (q.type === "matching") {
       const pairs = q.pairs || [];
       const givenArr = answers[qi] || [];
@@ -68,7 +78,7 @@ function calcScore(test, answers) {
     }
   });
 
-  return { correctCount, totalQuestions, earnedPoints, maxPoints };
+  return { correctCount, totalQuestions, earnedPoints, maxPoints, hasTextQuestions, pendingTextCount };
 }
 
 function dataUrlToBuffer(dataUrl) {

@@ -30,6 +30,11 @@ function truncate(s, n) {
   return t.length <= n ? t : t.slice(0, n - 1) + "…";
 }
 
+function isTextQuestionTypeName(qType) {
+  const t = String(qType || "").toLowerCase().trim();
+  return t === "text" || t === "textarea" || t === "open";
+}
+
 function logError(op, ctx, err) {
   console.error("op failed", {
     op,
@@ -190,7 +195,7 @@ async function presentQuestion(ctx, session) {
     return;
   }
 
-  if (qType === "text") {
+  if (isTextQuestionTypeName(qType)) {
     if (q.image) {
       await sendQuestionPhoto(ctx, header, q.image);
       await ctx.reply("Відповідь текстом:");
@@ -308,16 +313,26 @@ async function finishTest(ctx, session) {
     return;
   }
 
-  await ctx.reply(
-    `✅ <b>Тест завершено</b>\n\n` +
+  let resultMessage;
+  if (score.hasTextQuestions) {
+    resultMessage =
+      `✅ <b>Тест завершено</b>\n\n` +
+      `Учень: ${escHtml(session.studentName)}\n\n` +
+      `Ваш тест містить текстові відповіді, які потребують перевірки вчителем.\n` +
+      `Ви отримаєте результат після оцінювання.\n\n` +
+      `Результат збережено у хмарі.\n\n` +
+      `Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або /start, щоб пройти інший тест.`;
+  } else {
+    resultMessage =
+      `✅ <b>Тест завершено</b>\n\n` +
       `Учень: ${escHtml(session.studentName)}\n` +
       `Бали: ${score.earnedPoints} з ${score.maxPoints} (${pct}%)\n` +
       `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}\n\n` +
       `Результат збережено у хмарі. Вчитель побачить його після синхронізації в TeacherJournal.\n\n` +
-      `Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або /start, щоб пройти інший тест.`,
-    { parse_mode: "HTML", ...replyMainMenu() }
-  );
+      `Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або /start, щоб пройти інший тест.`;
+  }
 
+  await ctx.reply(resultMessage, { parse_mode: "HTML", ...replyMainMenu() });
   clearSession(session.chatId);
 }
 

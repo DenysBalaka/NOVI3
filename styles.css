@@ -1215,6 +1215,10 @@ input[type="checkbox"]:checked::after {
   border-color: var(--grade-1);
   background: rgba(248, 113, 113, 0.04);
 }
+.review-question.pending {
+  border-color: #d97706;
+  background: rgba(251, 191, 36, 0.04);
+}
 .review-question-header {
   display: flex;
   justify-content: space-between;
@@ -1232,6 +1236,7 @@ input[type="checkbox"]:checked::after {
 .review-badge.correct { background: rgba(74, 222, 128, 0.15); color: var(--grade-10); }
 .review-badge.wrong { background: rgba(248, 113, 113, 0.15); color: var(--grade-1); }
 .review-badge.partial { background: rgba(234, 179, 8, 0.15); color: var(--grade-7); }
+.review-badge.pending { background: rgba(251, 191, 36, 0.15); color: #d97706; }
 .review-option {
   display: flex;
   align-items: center;
