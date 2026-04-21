@@ -124,6 +124,25 @@ function isTextQuestionType(q) {
   return t === "text" || t === "textarea" || t === "open";
 }
 
+/** Колишній тип «відповідність» більше не підтримується в редакторі — мігруємо в «декілька відповідей». */
+function migrateLegacyMatchingQuestion(q) {
+  if (!q || q.type !== "matching") return q;
+  const pairs = Array.isArray(q.pairs) ? q.pairs : [];
+  const next = { ...q, type: "check" };
+  delete next.pairs;
+  next.options = pairs.length
+    ? pairs.map((p) => ({
+        text: [String(p.left || "").trim(), String(p.right || "").trim()].filter(Boolean).join(" → ") || "—",
+        correct: true,
+      }))
+    : [
+        { text: "", correct: true },
+        { text: "", correct: false },
+      ];
+  if (next.options.length === 1) next.options.push({ text: "", correct: false });
+  return next;
+}
+
 async function postAssignmentWithAutoPushTest(body, testExternalId) {
   try {
     await window.callCloudApi("POST", "assignments", body);
@@ -1145,26 +1164,27 @@ function renderResultsView(container) {
 // === СПИСОК ТЕСТІВ ===
 
 function openTestStudentPreview(test) {
+  const previewTest = JSON.parse(JSON.stringify(test));
+  previewTest.questions = (previewTest.questions || []).map(migrateLegacyMatchingQuestion);
+
   const overlay = document.createElement("div");
   overlay.style.cssText =
     "position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.55);overflow:auto;padding:20px;";
   const box = document.createElement("div");
   box.style.cssText =
     "max-width:720px;margin:0 auto;background:var(--bg-panel, #1e1e2e);border-radius:12px;padding:20px;border:1px solid var(--border-color);";
-  const title = window.esc(test.title || "Тест");
-  const qs = test.questions || [];
+  const title = window.esc(previewTest.title || "Тест");
+  const qs = previewTest.questions || [];
   let blocks = "";
   qs.forEach((q, qi) => {
     const typ =
       q.type === "radio"
-        ? "Один варіант"
+        ? "Одна відповідь"
         : q.type === "check"
-          ? "Декілька варіантів"
+          ? "Декілька відповідей"
           : q.type === "text"
-            ? "Текст"
-            : q.type === "matching"
-              ? "Відповідність"
-              : window.esc(q.type || "");
+            ? "Текстова відповідь"
+            : window.esc(q.type || "");
     blocks += `<div style="margin:14px 0;padding:12px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-light);">`;
     blocks += `<div style="font-weight:600;margin-bottom:8px;">Питання ${qi + 1} · ${typ}</div>`;
     blocks += `<div style="margin-bottom:8px;line-height:1.4;">${window.esc(q.text || "")}</div>`;
@@ -1177,10 +1197,6 @@ function openTestStudentPreview(test) {
       });
     } else if (q.type === "text") {
       blocks += `<p style="margin:0;font-size:13px;color:var(--muted);">У боті учень надсилає відповідь текстом.</p>`;
-    } else if (q.type === "matching") {
-      (q.pairs || []).forEach((p) => {
-        blocks += `<div style="margin:6px 0;font-size:14px;">${window.esc(p.left || "")} → <span style="color:var(--muted);">…</span></div>`;
-      });
     }
     blocks += `</div>`;
   });
@@ -1294,6 +1310,7 @@ export function openTestEditorTab(testId) {
 
   let testDraft = JSON.parse(JSON.stringify(window.state.tests[testIndex]));
   if (testDraft.shuffle === undefined) testDraft.shuffle = false;
+  testDraft.questions = (testDraft.questions || []).map(migrateLegacyMatchingQuestion);
 
   const tabId = "test-edit-" + testId;
   const tabTitle = `Тест: ${testDraft.title.substring(0, 20)}...`;
@@ -1399,10 +1416,9 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
 
     let optionsHTML = "";
     const types = [
-      { val: 'radio', label: 'Один варіант' },
-      ...(q.type === 'check' ? [{ val: 'check', label: 'Декілька варіантів (застаріле)' }] : []),
+      { val: 'radio', label: 'Одна відповідь' },
+      { val: 'check', label: 'Декілька відповідей' },
       { val: 'text', label: 'Текстова відповідь' },
-      { val: 'matching', label: 'Відповідність' }
     ];
 
     types.forEach(t => {
@@ -1417,7 +1433,6 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
     ` : '';
 
     const showOptions = q.type === 'radio' || q.type === 'check';
-    const showMatching = q.type === 'matching';
 
     qBlock.innerHTML = `
       <div class="question-header">
@@ -1445,11 +1460,6 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       <div class="options-list" style="display: ${showOptions ? 'block' : 'none'};"></div>
       <button class="btn ghost" data-action="add-option" style="margin-left: 28px; margin-top: 8px; display: ${showOptions ? 'block' : 'none'};">
         + Додати варіант
-      </button>
-
-      <div class="matching-editor-area" style="display: ${showMatching ? 'block' : 'none'}; margin-top: 8px;"></div>
-      <button class="btn ghost" data-action="add-pair" style="margin-left: 28px; margin-top: 8px; display: ${showMatching ? 'block' : 'none'};">
-        + Додати пару
       </button>
     `;
 
@@ -1488,36 +1498,10 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       });
     }
 
-    // Render matching pairs
-    if (showMatching) {
-      const matchArea = window.$(".matching-editor-area", qBlock);
-      if (!q.pairs) q.pairs = [];
-      q.pairs.forEach((pair, pi) => {
-        const pairRow = document.createElement("div");
-        pairRow.className = "matching-pair-editor";
-        pairRow.innerHTML = `
-          <input type="text" class="input pair-left" placeholder="Ліва частина..." value="${window.esc(pair.left || "")}">
-          <span style="color:var(--muted);font-size:18px;">↔</span>
-          <input type="text" class="input pair-right" placeholder="Права частина..." value="${window.esc(pair.right || "")}">
-          <button class="btn danger ghost" data-action="delete-pair" data-pair-index="${pi}" style="min-width:32px;padding:4px 8px;">✕</button>
-        `;
-        window.$(".pair-left", pairRow).oninput = (e) => { testDraft.questions[qi].pairs[pi].left = e.target.value; };
-        window.$(".pair-right", pairRow).oninput = (e) => { testDraft.questions[qi].pairs[pi].right = e.target.value; };
-        window.$('[data-action="delete-pair"]', pairRow).onclick = () => {
-          testDraft.questions[qi].pairs.splice(pi, 1);
-          renderTestCreatorQuestions(testDraft, questionsBox);
-        };
-        matchArea.appendChild(pairRow);
-      });
-    }
-
     // Question-level event handlers
     window.$(".q-type-select", qBlock).onchange = (e) => {
       const newType = e.target.value;
       testDraft.questions[qi].type = newType;
-      if (newType === 'matching' && !testDraft.questions[qi].pairs) {
-        testDraft.questions[qi].pairs = [{ left: '', right: '' }, { left: '', right: '' }];
-      }
       if (newType === 'radio' && (testDraft.questions[qi].options || []).length > 0) {
         testDraft.questions[qi].options.forEach((o, i) => o.correct = (i === 0));
       } else if (newType === 'check') {
@@ -1558,15 +1542,6 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       };
     }
 
-    const addPairBtn = window.$('[data-action="add-pair"]', qBlock);
-    if (addPairBtn) {
-      addPairBtn.onclick = () => {
-        if (!testDraft.questions[qi].pairs) testDraft.questions[qi].pairs = [];
-        testDraft.questions[qi].pairs.push({ left: '', right: '' });
-        renderTestCreatorQuestions(testDraft, questionsBox);
-      };
-    }
-
     qBlock.onclick = (e) => {
       if (e.target.dataset.action === 'delete-opt') {
         const optIndex = parseInt(e.target.dataset.optIndex, 10);
@@ -1587,6 +1562,7 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
   if (!originalTest) return;
 
   const test = JSON.parse(JSON.stringify(originalTest));
+  test.questions = (test.questions || []).map(migrateLegacyMatchingQuestion);
 
   let questionMap = test.questions.map((_, i) => i);
   let optionMaps = {};
@@ -1599,9 +1575,6 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         const optMap = shuffleArray(q.options.map((_, oi) => oi));
         optionMaps[i] = optMap;
         q.options = optMap.map(oi => test.questions[i].options[oi]);
-      }
-      if (q.type === 'matching') {
-        // pairs stay, right side is always shuffled during rendering
       }
       return q;
     });
@@ -1653,25 +1626,6 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         });
       } else if (q.type === 'text') {
         questionsHTML += `<textarea class="input" data-q-index="${qi}" placeholder="Введіть вашу відповідь..." style="min-height: 100px;"></textarea>`;
-      } else if (q.type === 'matching') {
-        const pairs = q.pairs || [];
-        const rightShuffled = shuffleArray(pairs.map(p => p.right));
-        questionsHTML += `<div class="matching-grid">`;
-        pairs.forEach((pair, pi) => {
-          questionsHTML += `
-            <div class="matching-pair">
-              <div class="matching-left">${window.esc(pair.left)}</div>
-              <span class="matching-arrow">→</span>
-              <div class="matching-right">
-                <select class="input" data-q-index="${qi}" data-pair-index="${pi}">
-                  <option value="">-- Оберіть --</option>
-                  ${rightShuffled.map(r => `<option value="${window.esc(r)}">${window.esc(r)}</option>`).join('')}
-                </select>
-              </div>
-            </div>
-          `;
-        });
-        questionsHTML += `</div>`;
       }
       questionsHTML += `</div></div>`;
     });
@@ -1740,9 +1694,6 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         } else if (q.type === 'text') {
           const ta = window.$(`textarea[data-q-index="${qi}"]`, questionsArea);
           hasAnswer = ta && ta.value.trim().length > 0;
-        } else if (q.type === 'matching') {
-          const selects = window.$$(`select[data-q-index="${qi}"]`, questionsArea);
-          hasAnswer = selects.length > 0 && selects.every(s => s.value !== '');
         }
 
         if (hasAnswer) {
@@ -1902,9 +1853,6 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         } else if (q.type === 'text') {
           const textarea = window.$(`textarea[data-q-index="${qi}"]`, questionsArea);
           answers[qi] = textarea ? textarea.value : "";
-        } else if (q.type === 'matching') {
-          const selects = window.$$(`select[data-q-index="${qi}"]`, questionsArea);
-          answers[qi] = selects.map(s => s.value);
         }
       });
 

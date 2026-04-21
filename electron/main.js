@@ -101,10 +101,30 @@ function normalizeAiGeneratedTest(obj, { wantImages }) {
   if (obj && typeof obj.shuffle === "boolean") out.shuffle = obj.shuffle;
 
   const qs = obj && Array.isArray(obj.questions) ? obj.questions : [];
-  for (const q of qs) {
-    if (!q || typeof q !== "object") continue;
-    const type = String(q.type || "radio").trim();
-    if (!["radio", "check", "matching", "text"].includes(type)) continue;
+  for (const raw of qs) {
+    if (!raw || typeof raw !== "object") continue;
+    let q = raw;
+    let type = String(q.type || "radio").trim();
+    if (type === "matching") {
+      const pairs = Array.isArray(q.pairs) ? q.pairs : [];
+      const fromPairs = pairs
+        .map((p) => {
+          if (!p || typeof p !== "object") return null;
+          const left = String(p.left || "").trim().slice(0, 160);
+          const right = String(p.right || "").trim().slice(0, 160);
+          if (!left || !right) return null;
+          return { text: `${left} → ${right}`.slice(0, 200), correct: true };
+        })
+        .filter(Boolean);
+      if (fromPairs.length >= 2) {
+        q = { ...q, type: "check", options: fromPairs };
+        delete q.pairs;
+        type = "check";
+      } else {
+        continue;
+      }
+    }
+    if (!["radio", "check", "text"].includes(type)) continue;
     const text = String(q.text || "").trim();
     if (!text) continue;
 
@@ -146,19 +166,6 @@ function normalizeAiGeneratedTest(obj, { wantImages }) {
         if (!cleaned.some((o) => o.correct)) cleaned[0].correct = true;
       }
       nq.options = cleaned.slice(0, 8);
-    } else if (type === "matching") {
-      const pairs = Array.isArray(q.pairs) ? q.pairs : [];
-      const cleaned = pairs
-        .map((p) => {
-          if (!p || typeof p !== "object") return null;
-          const left = String(p.left || "").trim().slice(0, 160);
-          const right = String(p.right || "").trim().slice(0, 160);
-          if (!left || !right) return null;
-          return { left, right };
-        })
-        .filter(Boolean);
-      if (cleaned.length < 2) continue;
-      nq.pairs = cleaned.slice(0, 8);
     }
 
     out.questions.push(nq);
@@ -301,20 +308,19 @@ async function googleGenerateTestViaApi({ prompt, count, wantImages, locale = "u
     '  "shuffle": false,',
     '  "questions": [',
     "    {",
-    '      "type": "radio|check|matching",',
+    '      "type": "radio|check|text",',
     '      "text": "string",',
     '      "points": 1,',
     '      "imageCaption": "string (опціонально, якщо потрібні зображення)",',
-    '      "options": [{"text":"string","correct":true|false}] (для radio/check),',
-    '      "pairs": [{"left":"string","right":"string"}] (для matching)',
+    '      "options": [{"text":"string","correct":true|false}] (лише для radio/check),',
     "    }",
     "  ]",
     "}",
     "Правила:",
-    "- Використовуй лише типи: radio, check, matching (НЕ text).",
+    "- Використовуй лише типи: radio (одна відповідь), check (декілька відповідей), text (відкрита текстова відповідь).",
     "- Для radio: рівно 1 правильний варіант.",
     "- Для check: 1-3 правильні варіанти.",
-    "- Для matching: мінімум 3 пари.",
+    "- Для text: без поля options.",
     "- Опцій максимум 4 (radio) або 6 (check).",
     "- Питань рівно стільки, скільки вказано користувачем.",
     "- Мова питань: українська.",
