@@ -194,7 +194,11 @@ router.delete("/tests/:externalId", async (req, res) => {
   const tid = req.teacher.id;
   const externalId = req.params.externalId;
   try {
-    await pool.query(`DELETE FROM tests WHERE teacher_id = $1 AND external_id = $2`, [tid, externalId]);
+    const r = await pool.query(`DELETE FROM tests WHERE teacher_id = $1 AND external_id = $2`, [tid, externalId]);
+    if (r.rowCount === 0) {
+      res.status(404).json({ error: "Тест не знайдено" });
+      return;
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
