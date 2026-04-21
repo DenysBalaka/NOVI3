@@ -17,6 +17,11 @@ function replyMainMenu() {
   return Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
 }
 
+/** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). Текст — невидимий символ. */
+async function sendMenuButtonKeyboard(ctx) {
+  await ctx.reply("\u2060", replyMainMenu());
+}
+
 function readJSON(p) {
   try {
     return JSON.parse(fs.readFileSync(p, "utf8"));
@@ -297,6 +302,7 @@ async function showTestPicker(ctx, paths) {
 
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   await ctx.reply("Оберіть тест:", Markup.inlineKeyboard(rows));
+  await sendMenuButtonKeyboard(ctx);
   const s = getSession(chatId);
   s.step = "pick";
   s.chatId = chatId;
@@ -306,6 +312,11 @@ function makeBot(paths, getWindow) {
   const bot = new Telegraf(readJSON(paths.settingsPath)?.telegramBotToken || "");
 
   bot.command("start", async (ctx) => {
+    const s0 = getSession(ctx.chat.id);
+    if (s0.test && (s0.step === "question" || s0.step === "wait_check" || s0.step === "wait_text")) {
+      await ctx.reply("Ви проходите тест. Щоб скасувати: /cancel");
+      return;
+    }
     await showTestPicker(ctx, paths);
   });
 
@@ -324,7 +335,7 @@ function makeBot(paths, getWindow) {
       const originalTest = tests.find((t) => t.id === testId && t.availableInTelegram !== false);
       await ctx.answerCbQuery();
       if (!originalTest) {
-        await ctx.reply("Тест недоступний.");
+        await ctx.reply("Тест недоступний.", replyMainMenu());
         return;
       }
       const { test, questionMap, optionMaps } = buildRunTest(originalTest);
@@ -387,12 +398,16 @@ function makeBot(paths, getWindow) {
     const text = (ctx.message.text || "").trim();
     if (text.startsWith("/")) return;
 
+    const s = getSession(chatId);
+
     if (text === MENU_BTN_CHOOSE_TEST) {
+      if (s.test && (s.step === "question" || s.step === "wait_check" || s.step === "wait_text")) {
+        await ctx.reply("Ви проходите тест. Щоб скасувати: /cancel");
+        return;
+      }
       await showTestPicker(ctx, paths);
       return;
     }
-
-    const s = getSession(chatId);
 
     if (s.step === "idle") {
       await ctx.reply(
@@ -417,7 +432,10 @@ function makeBot(paths, getWindow) {
       s.studentName = text;
       s.step = "question";
       s.qi = 0;
-      await ctx.reply(`Дякую, ${escHtml(text)}. Починаємо тест.`, { parse_mode: "HTML" });
+      await ctx.reply(`Дякую, ${escHtml(text)}. Починаємо тест.`, {
+        parse_mode: "HTML",
+        ...Markup.removeKeyboard(),
+      });
       await presentQuestion(ctx, paths, s);
       return;
     }

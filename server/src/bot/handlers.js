@@ -9,6 +9,11 @@ function replyMainMenu() {
   return Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
 }
 
+/** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). Текст — невидимий символ. */
+async function sendMenuButtonKeyboard(ctx) {
+  await ctx.reply("\u2060", replyMainMenu());
+}
+
 function getSession(chatId) {
   if (!sessions.has(chatId)) sessions.set(chatId, { step: "idle" });
   return sessions.get(chatId);
@@ -141,7 +146,10 @@ async function beginTestSession(ctx, row, meta = {}) {
     guestAge: meta.guestAge,
     guestGrade: meta.guestGrade,
   });
-  await ctx.reply(`Починаємо тест «${escHtml(originalTest.title)}».`, { parse_mode: "HTML", ...replyMainMenu() });
+  await ctx.reply(`Починаємо тест «${escHtml(originalTest.title)}».`, {
+    parse_mode: "HTML",
+    ...Markup.removeKeyboard(),
+  });
   await presentQuestion(ctx, s);
 }
 
@@ -523,6 +531,7 @@ async function showTestPicker(ctx) {
 
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   await ctx.reply("Оберіть тест:", Markup.inlineKeyboard(rows));
+  await sendMenuButtonKeyboard(ctx);
   const s = getSession(chatId);
   s.step = "pick";
   s.chatId = chatId;
@@ -640,7 +649,7 @@ function createBot() {
       await ctx.answerCbQuery();
       const row = await Q.validateTestAccess(chatId, testUuid);
       if (!row) {
-        await ctx.reply("Тест недоступний.");
+        await ctx.reply("Тест недоступний.", replyMainMenu());
         return;
       }
       await beginTestSession(ctx, row, {
@@ -691,12 +700,16 @@ function createBot() {
     const text = (ctx.message.text || "").trim();
     if (text.startsWith("/")) return;
 
+    const s = getSession(chatId);
+
     if (text === MENU_BTN_CHOOSE_TEST) {
+      if (s.test && (s.step === "question" || s.step === "wait_check" || s.step === "wait_text")) {
+        await ctx.reply("Ви проходите тест. Щоб скасувати: /cancel");
+        return;
+      }
       await showTestPicker(ctx);
       return;
     }
-
-    const s = getSession(chatId);
 
     if (s.step === "invite_open_name") {
       if (!text.trim()) {
@@ -801,7 +814,10 @@ function createBot() {
       s.studentName = text;
       s.step = "question";
       s.qi = 0;
-      await ctx.reply(`Дякую, ${escHtml(text)}. Починаємо тест.`, { parse_mode: "HTML" });
+      await ctx.reply(`Дякую, ${escHtml(text)}. Починаємо тест.`, {
+        parse_mode: "HTML",
+        ...Markup.removeKeyboard(),
+      });
       await presentQuestion(ctx, s);
       return;
     }
