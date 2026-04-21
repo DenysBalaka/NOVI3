@@ -5,6 +5,22 @@ const Q = require("./queries");
 const MENU_BTN_CHOOSE_TEST = "📋 Обрати тест";
 const sessions = new Map();
 
+/** У групі ctx.chat.id — id чату (−100…), а не учня. Для БД і прив’язки потрібен id користувача (from.id). */
+function dbTelegramUserId(ctx) {
+  if (ctx?.from?.id != null) return ctx.from.id;
+  return ctx?.chat?.id;
+}
+
+/** Сесія в групі — на користувача (чат+user), у приватному — лише chat.id */
+function sessionKey(ctx) {
+  const chat = ctx?.chat;
+  const from = ctx?.from;
+  if (!chat) return "0";
+  if (chat.type === "private") return String(chat.id);
+  if (from?.id != null) return `${chat.id}:${from.id}`;
+  return String(chat.id);
+}
+
 function replyMainMenu() {
   return Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
 }
@@ -102,17 +118,23 @@ async function sendQuestionPhoto(ctx, caption, dataUrl) {
 }
 
 async function beginTestSession(ctx, row, meta = {}) {
-  const chatId = ctx.chat.id;
+  const sk = sessionKey(ctx);
+  const replyChatId = ctx.chat.id;
+  const tgUserId = dbTelegramUserId(ctx);
   const payload = row.payload_json;
   const originalTest = parseTestPayload(payload);
   const shape = validateTestShape(originalTest);
   if (!originalTest || !shape.ok) {
-    logError("telegram.beginTestSession.invalid_payload", { chatId, testUuid: row?.id, reason: shape.reason }, new Error("Invalid test payload"));
+    logError(
+      "telegram.beginTestSession.invalid_payload",
+      { chatId: replyChatId, telegramUserId: tgUserId, testUuid: row?.id, reason: shape.reason },
+      new Error("Invalid test payload")
+    );
     await ctx.reply(
       "Не вдалося відкрити тест (пошкоджені дані). Зверніться до вчителя або спробуйте інший тест.",
       replyMainMenu()
     );
-    clearSession(chatId);
+    clearSession(sk);
     return;
   }
   if (!originalTest.id) originalTest.id = row.external_id;
@@ -121,27 +143,28 @@ async function beginTestSession(ctx, row, meta = {}) {
   try {
     built = buildRunTest(originalTest);
   } catch (e) {
-    logError("telegram.beginTestSession.buildRunTest", { chatId, testUuid: row?.id }, e);
+    logError("telegram.beginTestSession.buildRunTest", { chatId: replyChatId, testUuid: row?.id }, e);
     await ctx.reply("Не вдалося підготувати тест. Спробуйте інший або зверніться до вчителя.", replyMainMenu());
-    clearSession(chatId);
+    clearSession(sk);
     return;
   }
   const { test, questionMap, optionMaps } = built;
-  const s = getSession(chatId);
+  const s = getSession(sk);
   Object.assign(s, {
+    sessionKey: sk,
     step: "question",
     testId: row.external_id,
     cloudTestId: row.id,
     teacherId: row.teacher_id,
     studentRowId: meta.studentRowId != null ? meta.studentRowId : null,
-    telegramUserId: chatId,
+    telegramUserId: tgUserId,
     originalTest,
     test,
     questionMap,
     optionMaps,
     answers: {},
     qi: 0,
-    chatId,
+    chatId: replyChatId,
     studentName: meta.studentName || ctx.from?.first_name || "Telegram",
     guestAge: meta.guestAge,
     guestGrade: meta.guestGrade,
@@ -317,7 +340,7 @@ async function finishTest(ctx, session) {
   } catch (e) {
     console.error("[attempt insert]", e);
     await ctx.reply("Помилка збереження результату. Спробуйте пізніше.", replyMainMenu());
-    clearSession(session.chatId);
+    clearSession(session.sessionKey != null ? session.sessionKey : String(session.chatId));
     return;
   }
 
@@ -341,7 +364,7 @@ async function finishTest(ctx, session) {
   }
 
   await ctx.reply(resultMessage, { parse_mode: "HTML", ...replyMainMenu() });
-  clearSession(session.chatId);
+  clearSession(session.sessionKey != null ? session.sessionKey : String(session.chatId));
 }
 
 async function notifyTeachersFailedSelfLink(ctx, { className, fullName, reason, telegramUserId, username }) {
@@ -364,11 +387,13 @@ async function notifyTeachersFailedSelfLink(ctx, { className, fullName, reason, 
 }
 
 async function beginSelfLinkFlow(ctx) {
-  const chatId = ctx.chat.id;
-  clearSession(chatId);
-  const s = getSession(chatId);
+  const sk = sessionKey(ctx);
+  const replyChatId = ctx.chat.id;
+  clearSession(sk);
+  const s = getSession(sk);
   s.step = "link_class";
-  s.chatId = chatId;
+  s.sessionKey = sk;
+  s.chatId = replyChatId;
   await ctx.reply(
     "Вітаємо! Щоб бачити тести, прив’яжіть цей Telegram до журналу.\n\n" +
       "<b>Крок 1 з 2:</b> введіть <b>назву класу</b> так само, як у вчителя в журналі (наприклад: 10-А).",
@@ -377,7 +402,8 @@ async function beginSelfLinkFlow(ctx) {
 }
 
 async function processSelfLinkName(ctx, s, fullNameText) {
-  const chatId = ctx.chat.id;
+  const sk = sessionKey(ctx);
+  const tgUserId = dbTelegramUserId(ctx);
   const className = s.pendingClassName || "";
   const fullName = fullNameText.trim();
   if (!fullName) {
@@ -390,23 +416,23 @@ async function processSelfLinkName(ctx, s, fullNameText) {
 
   if (unlinked.length === 1) {
     try {
-      const ok = await Q.bindStudentTelegram(unlinked[0].id, chatId, ctx.from?.username || null);
+      const ok = await Q.bindStudentTelegram(unlinked[0].id, tgUserId, ctx.from?.username || null);
       if (!ok) {
         await notifyTeachersFailedSelfLink(ctx, {
           className,
           fullName,
           reason: "запис учня вже прив’язаний до іншого Telegram або недоступний",
-          telegramUserId: chatId,
+          telegramUserId: tgUserId,
           username: ctx.from?.username,
         });
-        clearSession(chatId);
+        clearSession(sk);
         await ctx.reply(
           "Не вдалося завершити прив’язку. Вчителя повідомлено. Зверніться до класного керівника.",
           replyMainMenu()
         );
         return;
       }
-      clearSession(chatId);
+      clearSession(sk);
       await ctx.reply(
         "Вас прив’язано до журналу. Натисніть «Обрати тест» внизу або надішліть /start.",
         replyMainMenu()
@@ -417,13 +443,13 @@ async function processSelfLinkName(ctx, s, fullNameText) {
           className,
           fullName,
           reason: "цей Telegram уже використовується в системі для іншого учня",
-          telegramUserId: chatId,
+          telegramUserId: tgUserId,
           username: ctx.from?.username,
         });
       } else {
         console.error(e);
       }
-      clearSession(chatId);
+      clearSession(sk);
       await ctx.reply(
         "Помилка прив’язки. Вчителя могли сповістити. Зверніться до вчителя.",
         replyMainMenu()
@@ -443,10 +469,10 @@ async function processSelfLinkName(ctx, s, fullNameText) {
     className,
     fullName,
     reason,
-    telegramUserId: chatId,
+    telegramUserId: tgUserId,
     username: ctx.from?.username,
   });
-  clearSession(chatId);
+  clearSession(sk);
   const notified = (await Q.getTeacherNotifyChatIdsForClassName(className)).length > 0;
   await ctx.reply(
     "Не вдалося автоматично вас додати до журналу." +
@@ -459,11 +485,11 @@ async function processSelfLinkName(ctx, s, fullNameText) {
 }
 
 async function startOpenInviteTest(ctx, s) {
-  const chatId = ctx.chat.id;
+  const sk = sessionKey(ctx);
   const row = await Q.validateOpenTestInvite(s.inviteCode, s.inviteOpenTestId);
   if (!row) {
     await ctx.reply("Запрошення недійсне або тест знято з публікації.", replyMainMenu());
-    clearSession(chatId);
+    clearSession(sk);
     return;
   }
   const name = s.guestFullName || ctx.from?.first_name || "Гість";
@@ -483,8 +509,8 @@ async function startOpenInviteTest(ctx, s) {
 }
 
 async function handleStartCommand(ctx) {
-  const chatId = ctx.chat.id;
-  const s0 = getSession(chatId);
+  const sk = sessionKey(ctx);
+  const s0 = getSession(sk);
   if (["invite_open_name", "invite_open_age", "invite_open_grade"].includes(s0.step)) {
     await ctx.reply("Завершіть кроки запрошення або надішліть /cancel.");
     return;
@@ -501,7 +527,7 @@ async function handleStartCommand(ctx) {
   const parts = raw.trim().split(/\s+/);
   const payload = parts.length > 1 ? parts.slice(1).join(" ") : "";
   if (payload && (await processStartPayload(ctx, payload))) return;
-  const st = await Q.getStudentByTelegram(chatId);
+  const st = await Q.getStudentByTelegram(dbTelegramUserId(ctx));
   if (st) {
     await showTestPicker(ctx);
   } else {
@@ -510,16 +536,18 @@ async function handleStartCommand(ctx) {
 }
 
 async function showTestPicker(ctx) {
-  const chatId = ctx.chat.id;
-  const st = await Q.getStudentByTelegram(chatId);
+  const sk = sessionKey(ctx);
+  const replyChatId = ctx.chat.id;
+  const tgUserId = dbTelegramUserId(ctx);
+  const st = await Q.getStudentByTelegram(tgUserId);
   if (!st) {
     await beginSelfLinkFlow(ctx);
     return;
   }
 
-  clearSession(chatId);
+  clearSession(sk);
 
-  const list = await Q.getAvailableTests(chatId);
+  const list = await Q.getAvailableTests(tgUserId);
   if (list.length === 0) {
     await ctx.reply(
       "Наразі немає доступних тестів.\n\n" +
@@ -532,13 +560,16 @@ async function showTestPicker(ctx) {
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   await ctx.reply("Оберіть тест:", Markup.inlineKeyboard(rows));
   await sendMenuButtonKeyboard(ctx);
-  const s = getSession(chatId);
+  const s = getSession(sk);
   s.step = "pick";
-  s.chatId = chatId;
+  s.sessionKey = sk;
+  s.chatId = replyChatId;
 }
 
 async function processStartPayload(ctx, payload) {
-  const chatId = ctx.chat.id;
+  const sk = sessionKey(ctx);
+  const replyChatId = ctx.chat.id;
+  const tgUserId = dbTelegramUserId(ctx);
   const username = ctx.from?.username || null;
   if (!payload || !payload.startsWith("invite_")) return false;
   const code = payload.replace(/^invite_/, "");
@@ -553,11 +584,12 @@ async function processStartPayload(ctx, payload) {
   }
 
   if (inv.test_id && !inv.student_id && !inv.class_id) {
-    const s = getSession(chatId);
+    const s = getSession(sk);
     s.step = "invite_open_name";
     s.inviteCode = code;
     s.inviteOpenTestId = inv.test_id;
-    s.chatId = chatId;
+    s.sessionKey = sk;
+    s.chatId = replyChatId;
     await ctx.reply(
       `Відкрите запрошення на тест.\n\n` +
         `<b>Крок 1 з 3:</b> введіть <b>ПІБ</b> повністю (одним повідомленням).`,
@@ -568,8 +600,8 @@ async function processStartPayload(ctx, payload) {
 
   if (inv.student_id) {
     try {
-      const ok = await Q.bindStudentTelegram(inv.student_id, chatId, username);
-      const check = await Q.getStudentByTelegram(chatId);
+      const ok = await Q.bindStudentTelegram(inv.student_id, tgUserId, username);
+      const check = await Q.getStudentByTelegram(tgUserId);
       if (!ok || !check) {
         await ctx.reply(
           "Не вдалося прив’язати акаунт (можливо, цей Telegram уже використовується іншим учнем)."
@@ -592,10 +624,11 @@ async function processStartPayload(ctx, payload) {
   }
 
   if (inv.class_id) {
-    const s = getSession(chatId);
+    const s = getSession(sk);
     s.step = "invite_class_name";
     s.inviteClassId = inv.class_id;
-    s.chatId = chatId;
+    s.sessionKey = sk;
+    s.chatId = replyChatId;
     await ctx.reply(
       `Запрошення до класу «${escHtml(inv.class_name || "")}».\n\n` +
         `Введіть <b>Прізвище та ім'я</b> точно як у класному журналі (одним рядком).`,
@@ -619,7 +652,7 @@ function createBot() {
   bot.hears(/^start$/i, async (ctx, next) => {
     const t = (ctx.message.text || "").trim();
     if (t.startsWith("/")) return next();
-    const s = getSession(ctx.chat.id);
+    const s = getSession(sessionKey(ctx));
     if (
       [
         "link_class",
@@ -636,18 +669,19 @@ function createBot() {
   });
 
   bot.command("cancel", async (ctx) => {
-    clearSession(ctx.chat.id);
+    clearSession(sessionKey(ctx));
     await ctx.reply("Сесію скинуто. Оберіть тест через меню внизу або /start.", replyMainMenu());
   });
 
   bot.on("callback_query", async (ctx) => {
     const data = ctx.callbackQuery.data || "";
-    const chatId = ctx.chat.id;
+    const sk = sessionKey(ctx);
+    const tgUserId = dbTelegramUserId(ctx);
 
     if (data.startsWith("p:")) {
       const testUuid = data.slice(2);
       await ctx.answerCbQuery();
-      const row = await Q.validateTestAccess(chatId, testUuid);
+      const row = await Q.validateTestAccess(tgUserId, testUuid);
       if (!row) {
         await ctx.reply("Тест недоступний.", replyMainMenu());
         return;
@@ -663,7 +697,7 @@ function createBot() {
       const parts = data.split(":");
       const qi = parseInt(parts[1], 10);
       const oi = parseInt(parts[2], 10);
-      const s = getSession(chatId);
+      const s = getSession(sk);
       await ctx.answerCbQuery();
       if (s.step !== "question" || !s.test || typeof s.qi !== "number" || qi !== s.qi) return;
 
@@ -678,7 +712,7 @@ function createBot() {
       const qi = parseInt(parts[1], 10);
       const pi = parseInt(parts[2], 10);
       const idx = parseInt(parts[3], 10);
-      const s = getSession(chatId);
+      const s = getSession(sk);
       await ctx.answerCbQuery();
       if (s.matchingQi !== qi || s.matchingPairIdx !== pi) return;
 
@@ -696,11 +730,11 @@ function createBot() {
   });
 
   bot.on("text", async (ctx) => {
-    const chatId = ctx.chat.id;
+    const sk = sessionKey(ctx);
     const text = (ctx.message.text || "").trim();
     if (text.startsWith("/")) return;
 
-    const s = getSession(chatId);
+    const s = getSession(sk);
 
     if (text === MENU_BTN_CHOOSE_TEST) {
       if (s.test && (s.step === "question" || s.step === "wait_check" || s.step === "wait_text")) {
@@ -778,8 +812,8 @@ function createBot() {
         return;
       }
       try {
-        await Q.bindStudentTelegram(matches[0].id, chatId, ctx.from?.username || null);
-        clearSession(chatId);
+        await Q.bindStudentTelegram(matches[0].id, dbTelegramUserId(ctx), ctx.from?.username || null);
+        clearSession(sk);
         await ctx.reply("Вас успішно прив’язано. Натисніть /start, щоб обрати тест.", replyMainMenu());
       } catch (e) {
         if (e.code === "23505") {
@@ -793,7 +827,7 @@ function createBot() {
     }
 
     if (s.step === "idle") {
-      const linked = await Q.getStudentByTelegram(chatId);
+      const linked = await Q.getStudentByTelegram(dbTelegramUserId(ctx));
       if (!linked) {
         await beginSelfLinkFlow(ctx);
         return;
