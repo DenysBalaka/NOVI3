@@ -265,29 +265,61 @@ function renderTelegramTestsView(container) {
 
     <div class="output-box" style="margin-top:16px;">
       <div class="output-box-header">
-        <h3>Призначення доступу до тесту</h3>
-        <button type="button" class="btn ghost" id="tg-roster-sync-btn" ${cloudOk ? "" : "disabled"} style="min-height:36px;font-size:13px;">
-          Синхронізувати класи з журналу
-        </button>
+        <h3>Тести в Telegram: публікація та доступ</h3>
       </div>
-      <p id="tg-roster-hint" style="margin:0 12px 10px;font-size:13px;color:var(--text-secondary);"></p>
-      <div style="padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
-        <div class="form-group" style="min-width:220px;">
-          <label for="tg-pick-test">Тест</label>
-          <select id="tg-pick-test" class="input"></select>
+      <p style="margin:0 12px 12px;font-size:13px;color:var(--text-secondary);">
+        Спочатку позначте тести й надішліть їх у бот — інакше учні не побачать їх у списку.
+        Потім для обраного тесту додайте класи чи учнів з журналу (хто саме має доступ).
+      </p>
+
+      <div style="margin:0 12px;padding-top:12px;border-top:1px solid var(--border-color);">
+        <h4 style="margin:0 0 8px;font-size:14px;font-weight:600;">1. Опублікувати в боті</h4>
+        <p style="margin:0 0 10px;font-size:13px;color:var(--text-secondary);">
+          Позначте тести та натисніть «Синхронізувати з ботом».
+          Якщо зняти всі позначки і натиснути ту саму кнопку — усі тести зникнуть з бота для учнів.
+        </p>
+        <div style="padding:0 0 12px;">
+          <button type="button" class="btn" id="tg-bulk-push" ${cloudOk ? "" : "disabled"}>Синхронізувати з ботом</button>
         </div>
-        <div class="form-group" style="min-width:200px;">
-          <label for="tg-pick-class">Додати клас</label>
-          <select id="tg-pick-class" class="input"></select>
-        </div>
-        <button type="button" class="btn" id="tg-add-class-assign" ${cloudOk ? "" : "disabled"}>Додати клас</button>
-        <div class="form-group" style="min-width:200px;">
-          <label for="tg-pick-student">Додати учня</label>
-          <select id="tg-pick-student" class="input"></select>
-        </div>
-        <button type="button" class="btn" id="tg-add-student-assign" ${cloudOk ? "" : "disabled"}>Додати учня</button>
+        <table class="table" id="tg-tests-table">
+          <thead>
+            <tr>
+              <th style="width:44px;text-align:center;"><input type="checkbox" id="tg-check-all" title="Усі"></th>
+              <th>Назва</th>
+              <th>Клас</th>
+              <th>Питань</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
-      <div id="tg-assign-list" style="padding:0 12px 12px;font-size:13px;"></div>
+
+      <div style="margin:12px 12px 0;padding-top:12px;border-top:1px solid var(--border-color);">
+        <div class="output-box-header" style="padding:0;margin-bottom:8px;">
+          <h4 style="margin:0;font-size:14px;font-weight:600;">2. Доступ за журналом</h4>
+          <button type="button" class="btn ghost" id="tg-roster-sync-btn" ${cloudOk ? "" : "disabled"} style="min-height:36px;font-size:13px;">
+            Синхронізувати класи з журналу
+          </button>
+        </div>
+        <p id="tg-roster-hint" style="margin:0 0 10px;font-size:13px;color:var(--text-secondary);"></p>
+        <div style="padding:0 0 12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+          <div class="form-group" style="min-width:220px;">
+            <label for="tg-pick-test">Тест</label>
+            <select id="tg-pick-test" class="input"></select>
+          </div>
+          <div class="form-group" style="min-width:200px;">
+            <label for="tg-pick-class">Додати клас</label>
+            <select id="tg-pick-class" class="input"></select>
+          </div>
+          <button type="button" class="btn" id="tg-add-class-assign" ${cloudOk ? "" : "disabled"}>Додати клас</button>
+          <div class="form-group" style="min-width:200px;">
+            <label for="tg-pick-student">Додати учня</label>
+            <select id="tg-pick-student" class="input"></select>
+          </div>
+          <button type="button" class="btn" id="tg-add-student-assign" ${cloudOk ? "" : "disabled"}>Додати учня</button>
+        </div>
+        <div id="tg-assign-list" style="padding:0 0 12px;font-size:13px;"></div>
+      </div>
     </div>
 
     <div class="output-box" style="margin-top:16px;">
@@ -305,30 +337,6 @@ function renderTelegramTestsView(container) {
         <button type="button" class="btn" id="tg-open-inv-create" ${cloudOk ? "" : "disabled"}>Створити посилання</button>
       </div>
       <p id="tg-open-inv-out" style="margin:0 12px 12px;font-size:13px;word-break:break-all;color:var(--accent);"></p>
-    </div>
-
-    <div class="output-box" style="margin-top:16px;">
-      <div class="output-box-header">
-        <h3>Опублікувати тести в боті</h3>
-      </div>
-      <p style="margin:0 12px 10px;font-size:13px;color:var(--text-secondary);">
-        Позначте тести та натисніть «Синхронізувати з ботом», щоб опублікувати їх у Telegram.
-        Якщо зняти всі позначки і натиснути ту саму кнопку — усі тести зникнуть з бота для учнів.
-      </p>
-      <div style="padding:0 12px 12px;">
-        <button type="button" class="btn" id="tg-bulk-push" ${cloudOk ? "" : "disabled"}>Синхронізувати з ботом</button>
-      </div>
-      <table class="table" id="tg-tests-table">
-        <thead>
-          <tr>
-            <th style="width:44px;text-align:center;"><input type="checkbox" id="tg-check-all" title="Усі"></th>
-            <th>Назва</th>
-            <th>Клас</th>
-            <th>Питань</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
     </div>
   `;
 
@@ -432,7 +440,7 @@ function renderTelegramTestsView(container) {
         "У хмарі ще немає списку класів. Натисніть <b>«Синхронізувати класи з журналу»</b> — інакше не вдасться обрати клас або учня для призначення.";
     } else {
       rosterHint.textContent =
-        "Після змін у журналі знову натисніть «Синхронізувати класи з журналу». Тест має бути опублікований у боті (галочки нижче), інакше учні не побачать його в списку.";
+        "Після змін у журналі знову натисніть «Синхронізувати класи з журналу». Тест має бути опублікований у боті (блок «Опублікувати в боті» вище), інакше учні не побачать його в списку.";
     }
   };
   updateRosterHint();
