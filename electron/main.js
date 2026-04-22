@@ -60,30 +60,35 @@ function readUpdateConfig() {
   return { genericBaseUrl, owner, repo, checkIntervalHours };
 }
 
-function setupAutoUpdates() {
-  if (!app.isPackaged) return;
+let __autoUpdateConfigured = false;
+let __autoUpdateConfigError = "";
+
+function configureAutoUpdaterOnce() {
+  if (__autoUpdateConfigured) return { ok: true };
+
+  if (!app.isPackaged) {
+    __autoUpdateConfigError = "Оновлення доступні лише у встановленій (зібраній) версії програми.";
+    return { error: __autoUpdateConfigError };
+  }
 
   const { genericBaseUrl, owner, repo, checkIntervalHours } = readUpdateConfig();
 
-  // Якщо не налаштовано джерело оновлень — тихо пропускаємо (без падіння застосунку).
   if (!genericBaseUrl && !(owner && repo)) {
+    __autoUpdateConfigError = "Оновлення не налаштовано (немає updates.genericBaseUrl або updates.githubOwner/updates.githubRepo).";
     console.warn("AutoUpdate disabled: no updates config in app_config.json (updates.*).");
-    return;
+    return { error: __autoUpdateConfigError };
   }
 
   try {
     if (genericBaseUrl) {
-      // Очікується структура, як у GitHub Releases latest/download:
-      // - latest.yml
-      // - TeacherJournal-Setup-x.y.z.exe (+ блокмап)
       autoUpdater.setFeedURL({ provider: "generic", url: genericBaseUrl + "/" });
     } else {
-      // GitHub provider працює лише якщо є коректний app-update.yml або feedURL.
       autoUpdater.setFeedURL({ provider: "github", owner, repo });
     }
   } catch (e) {
+    __autoUpdateConfigError = "Не вдалося налаштувати джерело оновлень.";
     console.error("AutoUpdate setFeedURL failed:", safeErrObj(e));
-    return;
+    return { error: __autoUpdateConfigError };
   }
 
   autoUpdater.autoDownload = false;
@@ -99,14 +104,6 @@ function setupAutoUpdates() {
     } catch (e) {
       console.error("AutoUpdate dialog failed:", safeErrObj(e));
       return { response: 1 };
-    }
-  };
-
-  const safeCheck = async () => {
-    try {
-      await autoUpdater.checkForUpdates();
-    } catch (e) {
-      console.error("AutoUpdate checkForUpdates failed:", safeErrObj(e));
     }
   };
 
@@ -186,9 +183,25 @@ function setupAutoUpdates() {
     });
   });
 
-  // Перевірка при старті + періодична перевірка
-  safeCheck();
-  setInterval(safeCheck, checkIntervalHours * 60 * 60 * 1000);
+  // Періодична перевірка
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((e) => {
+      console.error("AutoUpdate checkForUpdates failed:", safeErrObj(e));
+    });
+  }, checkIntervalHours * 60 * 60 * 1000);
+
+  __autoUpdateConfigured = true;
+  __autoUpdateConfigError = "";
+  return { ok: true };
+}
+
+function setupAutoUpdates() {
+  if (!app.isPackaged) return;
+  const cfg = configureAutoUpdaterOnce();
+  if (cfg?.error) return;
+  autoUpdater.checkForUpdates().catch((e) => {
+    console.error("AutoUpdate checkForUpdates failed:", safeErrObj(e));
+  });
 }
 
 function readSettingsJson() {
@@ -770,6 +783,18 @@ ipcMain.handle("tj:win-close", async () => {
   } catch (authErr) {
     console.log("User not logged in (auth error), closing normally.");
     app.quit(); 
+  }
+});
+
+ipcMain.handle("tj:update-check", async () => {
+  const cfg = configureAutoUpdaterOnce();
+  if (cfg?.error) return { error: cfg.error };
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (e) {
+    console.error("Manual update check failed:", safeErrObj(e));
+    return { error: "Не вдалося перевірити оновлення. Перевірте інтернет або спробуйте пізніше." };
   }
 });
 

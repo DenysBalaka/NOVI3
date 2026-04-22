@@ -251,8 +251,21 @@ export function renderSettings() {
             <label for="cloud-api-key">API-ключ вчителя</label>
             <input type="password" class="input" id="cloud-api-key" placeholder="внутрішньо" value="${window.esc(s.cloudApiKey || "")}" autocomplete="off" spellcheck="false">
           </div>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px;">
             <button type="button" class="btn" id="cloud-register-btn">Реєстрація (показати ключ)</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
+            <button type="button" class="btn ghost" id="btn-check-updates" style="padding:8px 12px;font-size:13px;">Перевірити оновлення</button>
+          </div>
+          <div class="form-group" style="margin:0 0 12px;">
+            <div style="font-size:12px;color:var(--muted);margin:0 0 6px;">Перевірка оновлень</div>
+            <input
+              type="text"
+              class="input"
+              value="Запускає перевірку нової версії. Якщо оновлення доступне — з’явиться системне вікно. Працює лише у встановленій (зібраній) версії."
+              readonly
+              style="opacity:0.75;font-size:12px;"
+            >
           </div>
           <div class="settings-card-header" style="padding:12px 0 8px;margin:0;border:none;">
             <div class="export-card-title" style="margin:0;">
@@ -539,6 +552,32 @@ export function renderSettings() {
           `Збережіть ключ:\n\n${d.apiKey}\n\nВін також записаний у полі вище.`
         );
         refreshCloudAccountUi();
+      }
+    };
+  }
+
+  const btnCheckUpdates = window.$("#btn-check-updates");
+  if (btnCheckUpdates) {
+    btnCheckUpdates.onclick = async () => {
+      const oldText = btnCheckUpdates.textContent;
+      btnCheckUpdates.disabled = true;
+      btnCheckUpdates.textContent = "Перевірка...";
+      try {
+        const res = await window.tj.updateCheck();
+        if (res?.error) {
+          await window.showCustomAlert("Оновлення", res.error);
+        } else {
+          // Якщо оновлення є — діалог покаже main-процес; якщо ні — electron-updater просто промовчить.
+          await window.showCustomAlert(
+            "Оновлення",
+            "Перевірку запущено. Якщо доступна нова версія — з’явиться системне вікно з пропозицією оновитись."
+          );
+        }
+      } catch (e) {
+        await window.showCustomAlert("Оновлення", e?.message || "Не вдалося перевірити оновлення.");
+      } finally {
+        btnCheckUpdates.disabled = false;
+        btnCheckUpdates.textContent = oldText;
       }
     };
   }

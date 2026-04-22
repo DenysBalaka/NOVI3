@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld("tj", {
   createBackup: () => ipcRenderer.invoke("tj:create-backup"),
   restoreBackup: () => ipcRenderer.invoke("tj:restore-backup"),
 
+  // Оновлення
+  updateCheck: () => ipcRenderer.invoke("tj:update-check"),
+
   on: (channel, func) => {
     if (["show-context-menu", "board-init-data", "tj:data-changed"].includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
