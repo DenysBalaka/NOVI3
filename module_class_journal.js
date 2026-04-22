@@ -18,6 +18,15 @@ function presenceShort(val) {
   return "";
 }
 
+function normalizeStudentName(entry) {
+  if (typeof entry === "string") return entry.trim();
+  if (entry && typeof entry === "object") {
+    if (entry.fullName != null) return String(entry.fullName).trim();
+    if (entry.name != null) return String(entry.name).trim();
+  }
+  return "";
+}
+
 export function renderClassJournalPage() {
   const semesters = window.state.settings.semesters || [];
 
@@ -69,7 +78,7 @@ export function renderClassJournalPage() {
     const out = window.$("#cj-output");
     if (!cls) { out.innerHTML = '<p style="color:var(--muted)">Оберіть клас.</p>'; return; }
 
-    const studentNames = window.state.students[cls] || [];
+    const studentNames = (window.state.students[cls] || []).map(normalizeStudentName).filter(Boolean);
     if (!studentNames.length) { out.innerHTML = '<p style="color:var(--muted)">У цьому класі немає учнів.</p>'; return; }
 
     let lessons = window.state.lessons.filter(l => l.class === cls);

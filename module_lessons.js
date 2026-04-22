@@ -24,6 +24,15 @@ const HW_STATUSES = [
   { value: "late", label: "пізно" }
 ];
 
+function normalizeStudentName(entry) {
+  if (typeof entry === "string") return entry.trim();
+  if (entry && typeof entry === "object") {
+    if (entry.fullName != null) return String(entry.fullName).trim();
+    if (entry.name != null) return String(entry.name).trim();
+  }
+  return "";
+}
+
 function migrateStudentData(s) {
   if (typeof s.presence === "boolean") {
     s.presence = s.presence ? "present" : "absent";
@@ -88,8 +97,8 @@ export function renderNewLessonDialog(dateKey, contextData = {}) {
       students: {},
       files: []
     };
-    const studentsInClass = window.state.students[className] || [];
-    studentsInClass.forEach(studentName => {
+    const studentsInClass = (window.state.students[className] || []).map(normalizeStudentName).filter(Boolean);
+    studentsInClass.forEach((studentName) => {
       newLesson.students[studentName] = {
         presence: "present", work: false, hwStatus: "", grade: "", gradeType: "current", note: ""
       };
@@ -107,7 +116,7 @@ export function renderLesson(id){
 
   if (!les.homework) les.homework = { description: "", dueDate: "" };
 
-  const studentsInClass = window.state.students[les.class] || [];
+  const studentsInClass = (window.state.students[les.class] || []).map(normalizeStudentName).filter(Boolean);
   const lessonStudents = les.students || {};
   studentsInClass.forEach(name => {
     if (!lessonStudents[name]) {
@@ -472,8 +481,8 @@ export function renderLessonsList(){
       students: {},
       files: []
     };
-    const studentsInClass = window.state.students[className] || [];
-    studentsInClass.forEach(studentName => {
+    const studentsInClass = (window.state.students[className] || []).map(normalizeStudentName).filter(Boolean);
+    studentsInClass.forEach((studentName) => {
       newLesson.students[studentName] = {
         presence: "present", work: false, hwStatus: "", grade: "", gradeType: "current", note: ""
       };

@@ -331,6 +331,15 @@ function bindExportLogic() {
 
 // --- Допоміжні функції ---
 
+function normalizeStudentName(entry) {
+  if (typeof entry === "string") return entry.trim();
+  if (entry && typeof entry === "object") {
+    if (entry.fullName != null) return String(entry.fullName).trim();
+    if (entry.name != null) return String(entry.name).trim();
+  }
+  return "";
+}
+
 /**
  * ОНОВЛЕНА ФУНКЦІЯ: Генерує дані для "широкого" експорту в Excel
  * Тепер включає Д/З, Роботу та Примітки для кожної дати.
@@ -362,7 +371,7 @@ function generateJournalExportDataXLSX(filters = {}) {
 
   // 3. Обробляємо кожен клас (кожен аркуш)
   for (const [className, classLessons] of Object.entries(lessonsByClass)) {
-    const students = window.state.students[className] || [];
+    const students = (window.state.students[className] || []).map(normalizeStudentName).filter(Boolean);
     if (students.length === 0) continue;
 
     // 4. Створюємо мапу даних

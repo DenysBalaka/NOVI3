@@ -81,7 +81,10 @@ export function populateEditorClasses() {
       const textarea = window.$("#editor-students-textarea");
       const toggleBtn = window.$("#editor-toggle-students-view");
       if (textarea) {
-        textarea.value = (window.state.students[name] || []).join("\n");
+        textarea.value = (window.state.students[name] || [])
+          .map((s, idx) => normalizeStudentEntry(s, idx).fullName)
+          .filter(Boolean)
+          .join("\n");
         textarea.disabled = false;
       }
       if (toggleBtn) toggleBtn.disabled = false;
@@ -222,8 +225,27 @@ export function bindEditorPageLogic() {
   };
   window.$("#editor-save-students").onclick = async () => {
     if (activeClassForEditing) {
-      const studentsList = window.$("#editor-students-textarea").value.split('\n').map(s => s.trim()).filter(Boolean); 
-      window.state.students[activeClassForEditing] = [...new Set(studentsList)];
+      const studentsList = window.$("#editor-students-textarea").value.split('\n').map(s => s.trim()).filter(Boolean);
+
+      const prev = window.state.students[activeClassForEditing] || [];
+      const prevByName = new Map();
+      prev.forEach((entry, idx) => {
+        const n = normalizeStudentEntry(entry, idx);
+        if (!n.fullName) return;
+        prevByName.set(n.fullName, n.entry);
+      });
+
+      const unique = [];
+      const seen = new Set();
+      studentsList.forEach((fullName) => {
+        const key = String(fullName || "").trim();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        const existing = prevByName.get(key);
+        unique.push(existing && typeof existing === "object" ? { ...existing, fullName: key } : key);
+      });
+
+      window.state.students[activeClassForEditing] = unique;
       try { 
         await window.saveStudentsSync(); 
         await window.showCustomAlert("Успіх", `Список учнів для класу "${activeClassForEditing}" збережено.`);
