@@ -487,6 +487,15 @@ function isPathSafe(targetPath) {
   return resolved.startsWith(paths.root + path.sep) || resolved === paths.root;
 }
 
+function isSensitiveAppDataFile(targetPath) {
+  try {
+    const name = path.basename(String(targetPath || "")).toLowerCase();
+    return name === "google_token.json";
+  } catch {
+    return false;
+  }
+}
+
 // === Керування вікном Дошки ===
 let boardWindow = null;
 async function createBoardWindow(boardPath) {
@@ -746,6 +755,7 @@ ipcMain.handle("tj:ai-generate-test", async (_e, payload) => {
 ipcMain.handle("tj:read-json", async (e, p) => {
   try {
     if (!isPathSafe(p)) { console.error(`Path rejected: ${p}`); return null; }
+    if (isSensitiveAppDataFile(p)) { console.error(`Sensitive path rejected: ${p}`); return null; }
     if (!fs.existsSync(p)) return null;
     const data = await fs.promises.readFile(p, "utf-8");
     return JSON.parse(data);
@@ -755,6 +765,7 @@ ipcMain.handle("tj:read-json", async (e, p) => {
 ipcMain.handle("tj:write-json", async (e, p, d) => {
   try {
     if (!isPathSafe(p)) { console.error(`Path rejected: ${p}`); return false; }
+    if (isSensitiveAppDataFile(p)) { console.error(`Sensitive path rejected: ${p}`); return false; }
     await fs.promises.writeFile(p, JSON.stringify(d, null, 2), "utf-8");
     return true;
   } catch (err) { console.error(`Failed to write ${p}:`, err); return false; }

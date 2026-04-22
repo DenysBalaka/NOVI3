@@ -1,5 +1,5 @@
 // === ФАЙЛ: electron/auth_handler.js ===
-const { net, shell } = require("electron");
+const { net, shell, safeStorage } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
@@ -48,6 +48,26 @@ const SCOPES = [
 ];
 
 const API_BASE_URL = "https://www.googleapis.com";
+
+function canEncryptTokens() {
+  try {
+    return !!safeStorage && typeof safeStorage.isEncryptionAvailable === "function" && safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+function encryptTokenJson(plainJson) {
+  if (!canEncryptTokens()) return null;
+  const encrypted = safeStorage.encryptString(String(plainJson || ""));
+  return encrypted.toString("base64");
+}
+
+function decryptTokenJson(base64) {
+  if (!canEncryptTokens()) return null;
+  const buf = Buffer.from(String(base64 || ""), "base64");
+  return safeStorage.decryptString(buf);
+}
 
 function init(rootPath) {
   appDataPath = rootPath;
@@ -114,12 +134,48 @@ async function googleApiRequest(url, method = "GET", headers = {}, body = null, 
 
 async function saveTokens(tokens) {
   tokens.expires_at = Date.now() + tokens.expires_in * 1000;
-  fs.writeFileSync(tokenPath, JSON.stringify(tokens));
+  const plain = JSON.stringify(tokens);
+  const enc = encryptTokenJson(plain);
+  if (enc) {
+    fs.writeFileSync(
+      tokenPath,
+      JSON.stringify({ v: 1, encrypted: true, data: enc }, null, 2),
+      "utf-8"
+    );
+    return;
+  }
+  // Fallback: if OS encryption is unavailable, store plain JSON (best-effort).
+  fs.writeFileSync(tokenPath, plain, "utf-8");
 }
 
 function loadTokens() {
   if (fs.existsSync(tokenPath)) {
-    try { return JSON.parse(fs.readFileSync(tokenPath, "utf-8")); } catch (e) { return null; }
+    try {
+      const raw = fs.readFileSync(tokenPath, "utf-8");
+      if (!raw) return null;
+
+      // New format: encrypted envelope
+      const maybe = JSON.parse(raw);
+      if (maybe && typeof maybe === "object" && maybe.encrypted === true && typeof maybe.data === "string") {
+        const dec = decryptTokenJson(maybe.data);
+        if (!dec) return null;
+        return JSON.parse(dec);
+      }
+
+      // Old format: plain token JSON
+      if (maybe && typeof maybe === "object" && (maybe.access_token || maybe.refresh_token)) {
+        // Opportunistic migration to encrypted format (if available).
+        try {
+          if (canEncryptTokens()) saveTokens(maybe);
+        } catch {}
+        return maybe;
+      }
+
+      return null;
+    } catch (e) {
+      // Backward compatibility: raw file may be plain JSON but invalid / truncated.
+      return null;
+    }
   }
   return null;
 }
