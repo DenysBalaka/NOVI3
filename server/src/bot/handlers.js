@@ -649,6 +649,12 @@ function createBot() {
 
   bot.command("start", (ctx) => handleStartCommand(ctx));
 
+  bot.command("ping", async (ctx) => {
+    const ms = Date.now() - (ctx.message?.date ? ctx.message.date * 1000 : Date.now());
+    const suffix = Number.isFinite(ms) ? ` (${Math.max(0, ms)}ms)` : "";
+    await ctx.reply(`pong${suffix}`);
+  });
+
   bot.hears(/^start$/i, async (ctx, next) => {
     const t = (ctx.message.text || "").trim();
     if (t.startsWith("/")) return next();
