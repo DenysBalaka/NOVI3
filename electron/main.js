@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
+const { autoUpdater } = require("electron-updater");
 const ExcelJS = require("exceljs");
 const { Document, Packer, Paragraph, TextRun, ImageRun } = require("docx");
 const AdmZip = require("adm-zip");
@@ -48,6 +49,147 @@ function loadAppConfig() {
   }
 }
 const appConfig = loadAppConfig();
+
+function readUpdateConfig() {
+  const upd = appConfig && typeof appConfig === "object" ? appConfig.updates : null;
+  const obj = upd && typeof upd === "object" ? upd : {};
+  const genericBaseUrl = typeof obj.genericBaseUrl === "string" ? obj.genericBaseUrl.trim().replace(/\/+$/, "") : "";
+  const owner = typeof obj.githubOwner === "string" ? obj.githubOwner.trim() : "";
+  const repo = typeof obj.githubRepo === "string" ? obj.githubRepo.trim() : "";
+  const checkIntervalHours = clampInt(obj.checkIntervalHours, 1, 48, 6);
+  return { genericBaseUrl, owner, repo, checkIntervalHours };
+}
+
+function setupAutoUpdates() {
+  if (!app.isPackaged) return;
+
+  const { genericBaseUrl, owner, repo, checkIntervalHours } = readUpdateConfig();
+
+  // Якщо не налаштовано джерело оновлень — тихо пропускаємо (без падіння застосунку).
+  if (!genericBaseUrl && !(owner && repo)) {
+    console.warn("AutoUpdate disabled: no updates config in app_config.json (updates.*).");
+    return;
+  }
+
+  try {
+    if (genericBaseUrl) {
+      // Очікується структура, як у GitHub Releases latest/download:
+      // - latest.yml
+      // - TeacherJournal-Setup-x.y.z.exe (+ блокмап)
+      autoUpdater.setFeedURL({ provider: "generic", url: genericBaseUrl + "/" });
+    } else {
+      // GitHub provider працює лише якщо є коректний app-update.yml або feedURL.
+      autoUpdater.setFeedURL({ provider: "github", owner, repo });
+    }
+  } catch (e) {
+    console.error("AutoUpdate setFeedURL failed:", safeErrObj(e));
+    return;
+  }
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  let userWantsInstallNow = false;
+  let updatePromptShown = false;
+
+  const safeShowMessage = async (opts) => {
+    try {
+      const w = win && !win.isDestroyed() ? win : undefined;
+      return await dialog.showMessageBox(w, opts);
+    } catch (e) {
+      console.error("AutoUpdate dialog failed:", safeErrObj(e));
+      return { response: 1 };
+    }
+  };
+
+  const safeCheck = async () => {
+    try {
+      await autoUpdater.checkForUpdates();
+    } catch (e) {
+      console.error("AutoUpdate checkForUpdates failed:", safeErrObj(e));
+    }
+  };
+
+  autoUpdater.on("error", (err) => {
+    console.error("AutoUpdate error:", safeErrObj(err));
+  });
+
+  autoUpdater.on("update-available", async (info) => {
+    if (updatePromptShown) return;
+    updatePromptShown = true;
+
+    const version = info && info.version ? String(info.version) : "";
+    const r = await safeShowMessage({
+      type: "info",
+      buttons: ["Оновити зараз", "Пізніше (після перезапуску)"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Доступне оновлення",
+      message: version ? `Доступна нова версія TeacherJournal: ${version}` : "Доступна нова версія TeacherJournal",
+      detail: "Оновити зараз чи встановити після перезапуску програми?",
+      noLink: true,
+    });
+
+    userWantsInstallNow = r && r.response === 0;
+
+    try {
+      autoUpdater.autoDownload = true;
+      await autoUpdater.downloadUpdate();
+    } catch (e) {
+      console.error("AutoUpdate downloadUpdate failed:", safeErrObj(e));
+      updatePromptShown = false;
+      userWantsInstallNow = false;
+      await safeShowMessage({
+        type: "error",
+        buttons: ["OK"],
+        defaultId: 0,
+        title: "Оновлення",
+        message: "Не вдалося завантажити оновлення.",
+        detail: "Перевірте інтернет або спробуйте пізніше.",
+        noLink: true,
+      });
+    }
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    const version = info && info.version ? String(info.version) : "";
+    if (userWantsInstallNow) {
+      const r = await safeShowMessage({
+        type: "question",
+        buttons: ["Перезапустити та встановити", "Пізніше"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "Оновлення завантажено",
+        message: version ? `Оновлення ${version} завантажено.` : "Оновлення завантажено.",
+        detail: "Перезапустити програму зараз для встановлення?",
+        noLink: true,
+      });
+      if (r && r.response === 0) {
+        try {
+          autoUpdater.quitAndInstall(false, true);
+        } catch (e) {
+          console.error("AutoUpdate quitAndInstall failed:", safeErrObj(e));
+        }
+      }
+      userWantsInstallNow = false;
+      return;
+    }
+
+    await safeShowMessage({
+      type: "info",
+      buttons: ["OK"],
+      defaultId: 0,
+      title: "Оновлення завантажено",
+      message: version ? `Оновлення ${version} завантажено.` : "Оновлення завантажено.",
+      detail: "Воно встановиться автоматично після перезапуску програми.",
+      noLink: true,
+    });
+  });
+
+  // Перевірка при старті + періодична перевірка
+  safeCheck();
+  setInterval(safeCheck, checkIntervalHours * 60 * 60 * 1000);
+}
 
 function readSettingsJson() {
   try {
@@ -576,6 +718,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  setupAutoUpdates();
   const st = readSettingsJson();
   const localOn =
     !!(st.telegramLocalBotEnabled ?? st.telegramBotEnabled) &&

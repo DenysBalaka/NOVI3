@@ -1,5 +1,11 @@
 {
   "defaultCloudApiBaseUrl": "https://tg-test-bot-3lvy.onrender.com",
   "telegramBotUsername": "Odoo_TEST1_bot",
-  "telegramBotPublicUrl": ""
+  "telegramBotPublicUrl": "",
+  "updates": {
+    "checkIntervalHours": 6,
+    "genericBaseUrl": "",
+    "githubOwner": "DenysBalaka",
+    "githubRepo": "NOVI3"
+  }
 }
