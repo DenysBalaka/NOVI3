@@ -17,8 +17,7 @@ async function getAvailableTests(telegramUserId) {
      FROM tests t
      INNER JOIN assignments a ON a.test_id = t.id AND a.teacher_id = t.teacher_id AND a.active = true
      INNER JOIN students s ON s.telegram_user_id = $1
-     WHERE t.published_telegram = true
-     AND (
+     WHERE (
        (a.target_type = 'user' AND a.student_id = s.id)
        OR (a.target_type = 'class' AND a.class_id = s.class_id)
      )`,
@@ -33,7 +32,7 @@ async function validateTestAccess(telegramUserId, testUuid) {
      FROM tests t
      INNER JOIN assignments a ON a.test_id = t.id AND a.teacher_id = t.teacher_id AND a.active = true
      INNER JOIN students s ON s.telegram_user_id = $1
-     WHERE t.id = $2::uuid AND t.published_telegram = true
+     WHERE t.id = $2::uuid
      AND (
        (a.target_type = 'user' AND a.student_id = s.id)
        OR (a.target_type = 'class' AND a.class_id = s.class_id)
@@ -49,7 +48,7 @@ async function validateOpenTestInvite(inviteCode, testUuid) {
     `SELECT t.id, t.external_id, t.title, t.payload_json, t.teacher_id
      FROM invites i
      JOIN tests t ON t.id = i.test_id AND t.teacher_id = i.teacher_id
-     WHERE i.code = $1 AND i.test_id = $2::uuid AND t.published_telegram = true
+     WHERE i.code = $1 AND i.test_id = $2::uuid
      AND (i.expires_at IS NULL OR i.expires_at > now())`,
     [inviteCode, testUuid]
   );

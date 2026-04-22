@@ -488,7 +488,7 @@ async function startOpenInviteTest(ctx, s) {
   const sk = sessionKey(ctx);
   const row = await Q.validateOpenTestInvite(s.inviteCode, s.inviteOpenTestId);
   if (!row) {
-    await ctx.reply("Запрошення недійсне або тест знято з публікації.", replyMainMenu());
+    await ctx.reply("Запрошення недійсне або прострочене.", replyMainMenu());
     clearSession(sk);
     return;
   }
@@ -551,7 +551,7 @@ async function showTestPicker(ctx) {
   if (list.length === 0) {
     await ctx.reply(
       "Наразі немає доступних тестів.\n\n" +
-        "Вчитель має опублікувати тест і призначити його вам або вашому класу.",
+        "Вчитель має надати вам доступ до тесту (класу або вам особисто).",
       replyMainMenu()
     );
     return;

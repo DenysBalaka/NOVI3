@@ -114,8 +114,16 @@ async function pushTestToCloud(test) {
   await window.callCloudApi("PUT", `tests/${encodeURIComponent(test.id)}`, {
     title: test.title,
     payloadJson: test,
-    publishedTelegram: test.availableInTelegram !== false,
   });
+}
+
+async function pushTestToCloudIfConfigured(test) {
+  const baseUrl =
+    typeof window.getCloudBaseUrl === "function"
+      ? window.getCloudBaseUrl()
+      : (window.state.settings?.cloudApiBaseUrl || "").trim();
+  if (!baseUrl || !(window.state.settings?.cloudApiKey || "").trim()) return;
+  await pushTestToCloud(test);
 }
 
 /**
@@ -292,38 +300,15 @@ function renderTelegramTestsView(container) {
 
     <div class="output-box" style="margin-top:16px;">
       <div class="output-box-header">
-        <h3>Тести в Telegram: публікація та доступ</h3>
+        <h3>Тести в Telegram: доступ</h3>
       </div>
       <p style="margin:0 12px 12px;font-size:13px;color:var(--text-secondary);">
-        Спочатку позначте тести й надішліть їх у бот — інакше учні не побачать їх у списку.
-        Потім для обраного тесту додайте класи чи учнів з журналу (хто саме має доступ).
+        Після збереження тест автоматично доступний у Telegram. Тут ви керуєте лише доступом: додаєте клас/учня або створюєте відкрите посилання.
       </p>
 
       <div style="margin:0 12px;padding-top:12px;border-top:1px solid var(--border-color);">
-        <h4 style="margin:0 0 8px;font-size:14px;font-weight:600;">1. Опублікувати в боті</h4>
-        <p style="margin:0 0 10px;font-size:13px;color:var(--text-secondary);">
-          Позначте тести та натисніть «Синхронізувати з ботом».
-          Якщо зняти всі позначки і натиснути ту саму кнопку — усі тести зникнуть з бота для учнів.
-        </p>
-        <div style="padding:0 0 12px;">
-          <button type="button" class="btn" id="tg-bulk-push" ${cloudOk ? "" : "disabled"}>Синхронізувати з ботом</button>
-        </div>
-        <table class="table" id="tg-tests-table">
-          <thead>
-            <tr>
-              <th style="width:44px;text-align:center;"><input type="checkbox" id="tg-check-all" title="Усі"></th>
-              <th>Назва</th>
-              <th>Клас</th>
-              <th>Питань</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-
-      <div style="margin:12px 12px 0;padding-top:12px;border-top:1px solid var(--border-color);">
         <div class="output-box-header" style="padding:0;margin-bottom:8px;">
-          <h4 style="margin:0;font-size:14px;font-weight:600;">2. Доступ за журналом</h4>
+          <h4 style="margin:0;font-size:14px;font-weight:600;">Доступ за журналом</h4>
           <button type="button" class="btn ghost" id="tg-roster-sync-btn" ${cloudOk ? "" : "disabled"} style="min-height:36px;font-size:13px;">
             Синхронізувати класи з журналу
           </button>
@@ -467,7 +452,7 @@ function renderTelegramTestsView(container) {
         "У хмарі ще немає списку класів. Натисніть <b>«Синхронізувати класи з журналу»</b> — інакше не вдасться обрати клас або учня для призначення.";
     } else {
       rosterHint.textContent =
-        "Після змін у журналі знову натисніть «Синхронізувати класи з журналу». Тест має бути опублікований у боті (блок «Опублікувати в боті» вище), інакше учні не побачать його в списку.";
+        "Після змін у журналі знову натисніть «Синхронізувати класи з журналу». Далі оберіть тест і додайте доступ класу або конкретному учню.";
     }
   };
   updateRosterHint();
@@ -594,101 +579,9 @@ function renderTelegramTestsView(container) {
     };
   }
 
-  const tbody = window.$("#tg-tests-table tbody");
-  if (tests.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);">Немає збережених тестів.</td></tr>`;
-    return;
-  }
-
-  tests.forEach((t, idx) => {
-    const n = (t.questions || []).length;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td style="text-align:center;">
-        <input type="checkbox" class="tg-bulk-cb" data-test-idx="${idx}" ${n === 0 ? "disabled title=\"Додайте питання\"" : ""}>
-      </td>
-      <td>${window.esc(t.title)}</td>
-      <td>${window.esc(t.className || "—")}</td>
-      <td>${n}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  const checkAll = window.$("#tg-check-all");
-  if (checkAll) {
-    checkAll.onchange = () => {
-      window.$$(".tg-bulk-cb:not(:disabled)", tbody).forEach((cb) => {
-        cb.checked = checkAll.checked;
-      });
-    };
-  }
-
-  const bulkPush = window.$("#tg-bulk-push");
-  if (bulkPush) {
-    bulkPush.onclick = async () => {
-      const selected = window.$$(".tg-bulk-cb:checked", tbody);
-      if (selected.length === 0) {
-        if (!cloudOk) {
-          await window.showCustomAlert("Хмара", "Налаштуйте хмару в Налаштуваннях.");
-          return;
-        }
-        const okUnpublish = await window.showCustomConfirm(
-          "Синхронізація з ботом",
-          "Зняти з публікації в Telegram усі тести зі списку? Учні більше не бачитимуть їх у боті.",
-          "Зняти з бота",
-          "Скасувати",
-          true
-        );
-        if (!okUnpublish) return;
-        msgEl.textContent = "Оновлення…";
-        msgEl.style.color = "var(--text-secondary)";
-        let n = 0;
-        for (const test of window.state.tests) {
-          if ((test.questions || []).length === 0) continue;
-          try {
-            test.availableInTelegram = false;
-            await pushTestToCloud(test);
-            n++;
-          } catch (e) {
-            msgEl.textContent = e.message || String(e);
-            msgEl.style.color = "var(--danger)";
-            window.saveTests();
-            return;
-          }
-        }
-        window.saveTests();
-        window.$$(".tg-bulk-cb", tbody).forEach((cb) => {
-          cb.checked = false;
-        });
-        if (checkAll) checkAll.checked = false;
-        msgEl.textContent =
-          n > 0 ? `Усі тести знято з бота (${n}).` : "Немає тестів з питаннями для оновлення.";
-        msgEl.style.color = "var(--grade-10)";
-        return;
-      }
-      msgEl.textContent = "Відправка…";
-      msgEl.style.color = "var(--text-secondary)";
-      let ok = 0;
-      for (const cb of selected) {
-        const idx = parseInt(cb.dataset.testIdx, 10);
-        const test = window.state.tests[idx];
-        if (!test || (test.questions || []).length === 0) continue;
-        try {
-          test.availableInTelegram = true;
-          await pushTestToCloud(test);
-          ok++;
-        } catch (e) {
-          msgEl.textContent = e.message || String(e);
-          msgEl.style.color = "var(--danger)";
-          window.saveTests();
-          return;
-        }
-      }
-      window.saveTests();
-      msgEl.textContent = `Опубліковано в боті тестів: ${ok}.`;
-      msgEl.style.color = "var(--grade-10)";
-    };
-  }
+  // Публікацію/зняття з публікації прибрано.
+  // Тест з’являється в Telegram автоматично після збереження (у хмарі),
+  // а доступ керується через призначення/посилання вище.
 }
 
 function renderTestsListView(container) {
@@ -744,8 +637,7 @@ function renderTestsListView(container) {
       className: classSel.value || "",
       subjectName: subjectSel.value || "",
       shuffle: false,
-      questions: [],
-      availableInTelegram: true
+      questions: []
     };
 
     window.state.tests.push(newTest);
@@ -867,12 +759,16 @@ function openAiTestGenerationTab(initial = {}) {
           className: classSel?.value || "",
           subjectName: subjectSel?.value || "",
           shuffle: !!t.shuffle,
-          questions: t.questions,
-          availableInTelegram: true
+          questions: t.questions
         };
 
         window.state.tests.push(newTest);
         window.saveTests();
+        try {
+          await pushTestToCloudIfConfigured(newTest);
+        } catch (e) {
+          await window.showCustomAlert("Хмара", e.message || String(e));
+        }
         setStatus("Готово. Відкриваю редактор для перевірки…", true);
         openTestEditorTab(newTest.id);
         window.closeTab(tabId);
@@ -1436,6 +1332,11 @@ export function openTestEditorTab(testId) {
       }
 
       await window.saveTests();
+      try {
+        await pushTestToCloudIfConfigured(testDraft);
+      } catch (e) {
+        await window.showCustomAlert("Хмара", e.message || String(e));
+      }
       await window.showCustomAlert("Збережено", `Тест "${testDraft.title}" оновлено.`);
 
       window.closeTab(tabId);

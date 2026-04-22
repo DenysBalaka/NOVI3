@@ -149,25 +149,23 @@ router.post("/roster/sync", async (req, res) => {
 router.put("/tests/:externalId", async (req, res) => {
   const tid = req.teacher.id;
   const externalId = req.params.externalId;
-  const { title, payloadJson, publishedTelegram } = req.body || {};
+  const { title, payloadJson } = req.body || {};
   if (!title || payloadJson === undefined) {
     res.status(400).json({ error: "Потрібні title та payloadJson" });
     return;
   }
   try {
     const payloadStr = typeof payloadJson === "string" ? payloadJson : JSON.stringify(payloadJson);
-    const pub =
-      publishedTelegram === undefined ? null : !!publishedTelegram;
     const r = await pool.query(
       `INSERT INTO tests (teacher_id, external_id, title, payload_json, published_telegram, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, COALESCE($5::boolean, false), now())
+       VALUES ($1, $2, $3, $4::jsonb, true, now())
        ON CONFLICT (teacher_id, external_id) DO UPDATE SET
          title = EXCLUDED.title,
          payload_json = EXCLUDED.payload_json,
-         published_telegram = COALESCE($5::boolean, tests.published_telegram),
+         published_telegram = true,
          updated_at = now()
        RETURNING id, external_id, title, published_telegram, updated_at`,
-      [tid, externalId, title, payloadStr, pub]
+      [tid, externalId, title, payloadStr]
     );
     res.json(r.rows[0]);
   } catch (e) {
