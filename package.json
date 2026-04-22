@@ -1,7 +1,8 @@
 {
-  "name": "teacherjournal-portable",
-  "version": "1.1.0",
-  "description": "TeacherJournal portable Electron app (no bundlers)",
+  "name": "teacherjournal",
+  "version": "2.4.1",
+  "description": "TeacherJournal desktop Electron app (installer-based)",
+  "author": "Denis Balaka <balaka185@gmail.com>",
   "main": "electron/main.js",
   "type": "commonjs",
   "scripts": {
@@ -20,7 +21,7 @@
     "electron-builder": "^24.6.0"
   },
   "build": {
-    "appId": "com.teacher.journal.portable",
+    "appId": "com.teacher.journal",
     "productName": "TeacherJournal",
     "files": [
       "electron/**",
@@ -40,7 +41,10 @@
       "module_reports.js",
       "module_tests.js",
       "module_notes.js",
-      "module_export.js"
+      "module_export.js",
+      "module_schedule.js",
+      "module_class_journal.js",
+      "module_curriculum.js"
     ],
     "directories": {
       "buildResources": "assets"

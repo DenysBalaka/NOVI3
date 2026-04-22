@@ -13,7 +13,7 @@ const { startTelegramBot, stopTelegramBot } = require("./telegram_bot.js");
 let win;
 
 function ensureDirs(){
-  const root = path.join(app.getPath("appData"), "TeacherJournalPortable");
+  const root = path.join(app.getPath("appData"), "TeacherJournal");
   const files = path.join(root, "files");
   if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive:true });
   if (!fs.existsSync(files)) fs.mkdirSync(files, { recursive:true });
