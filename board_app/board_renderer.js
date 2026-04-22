@@ -7,7 +7,7 @@ window.$$ = (s,el=document) => Array.from(el.querySelectorAll(s));
 window.esc = (str) => String(str || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 let canvas, ctx, bgCanvas, bgCtx, boardFilePath = null;
-let boardData = { strokes: [], images: [], texts: [], shapes: [], template: 'blank' };
+let boardData = { strokes: [], images: [], texts: [], shapes: [], template: 'grid' };
 let imageCache = {}; 
 let viewport = { x: 0, y: 0, scale: 1 }; 
 let isPanning = false, lastPanPoint = { x: 0, y: 0 };
@@ -42,8 +42,10 @@ async function loadBoard() {
   try {
     const data = await window.tj.readJSON(boardFilePath);
     if (data) {
-      boardData = { ...data, strokes: data.strokes||[], images: data.images||[], texts: data.texts||[], shapes: data.shapes||[], template: data.template||'blank', viewport: data.viewport||{x:0,y:0,scale:1} };
-      viewport = boardData.viewport; window.$("#template-select").value = boardData.template;
+      boardData = { ...data, strokes: data.strokes||[], images: data.images||[], texts: data.texts||[], shapes: data.shapes||[], template: data.template||'grid', viewport: data.viewport||{x:0,y:0,scale:1} };
+      viewport = boardData.viewport;
+      const tplSel = window.$("#template-select");
+      if (tplSel) tplSel.value = boardData.template;
       pushHistory(); await cacheAllImages(); redrawAll(); updateZoomUI();
     }
   } catch (e) { console.error(e); }

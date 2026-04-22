@@ -142,10 +142,11 @@ export async function createNewBoard(title) {
     // 1. Створюємо початковий файл .tjboard
     const initialBoardData = {
       version: 1,
-      template: "blank", // "blank", "grid", "lines"
+      template: "grid", // "blank", "grid", "lines", "dark"
       strokes: [], // { tool, color, width, points: [[x,y], [x,y]] }
       images: [],  // <-- ДОДАНО
-      texts: []    // <-- ДОДАНО
+      texts: [],   // <-- ДОДАНО
+      shapes: []   // <-- ДОДАНО (фігури)
     };
     
     const success = await window.tj.writeJSON(boardSavePath, initialBoardData);
