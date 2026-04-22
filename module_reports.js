@@ -26,6 +26,15 @@ function gradeTypeLabel(val) {
   return map[val] || "Пот.";
 }
 
+function normalizeStudentName(entry) {
+  if (typeof entry === "string") return entry.trim();
+  if (entry && typeof entry === "object") {
+    if (entry.fullName != null) return String(entry.fullName).trim();
+    if (entry.name != null) return String(entry.name).trim();
+  }
+  return "";
+}
+
 function filterBySemester(lessons, semIdx) {
   if (semIdx === "" || semIdx === undefined) return lessons;
   const sem = (window.state.settings.semesters || [])[parseInt(semIdx)];
@@ -34,6 +43,128 @@ function filterBySemester(lessons, semIdx) {
     const ld = (l.date || "").split("T")[0];
     return ld >= sem.startDate && ld <= sem.endDate;
   });
+}
+
+function getSemesterRange(semIdx) {
+  if (semIdx === "" || semIdx === undefined) return null;
+  const sem = (window.state.settings.semesters || [])[parseInt(semIdx)];
+  if (!sem || !sem.startDate || !sem.endDate) return null;
+  return { startDate: sem.startDate, endDate: sem.endDate, name: sem.name || "" };
+}
+
+function attemptDateIso(a) {
+  const raw = a && a.completedAtIso ? String(a.completedAtIso) : "";
+  const d = raw ? new Date(raw) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function resolveAttemptTestMeta(attempt, testsById) {
+  const tid = attempt && attempt.testId ? String(attempt.testId) : "";
+  const t = tid && testsById[tid] ? testsById[tid] : null;
+  const title =
+    (t && t.title ? String(t.title) : "") ||
+    (attempt && attempt.testTitle ? String(attempt.testTitle) : "") ||
+    (tid ? tid : "—");
+  const subjectName = t && t.subjectName != null ? String(t.subjectName) : "";
+  const className = t && t.className != null ? String(t.className) : "";
+  return { tid, title, subjectName, className };
+}
+
+function renderCompletedTestsSection({ type, cls, stu, sub, semIdx }) {
+  const attempts = window.state.attempts || [];
+  const tests = window.state.tests || [];
+  const testsById = {};
+  tests.forEach((t) => {
+    if (!t || !t.id) return;
+    testsById[String(t.id)] = t;
+  });
+
+  const sem = getSemesterRange(semIdx);
+  const inSem = (a) => {
+    if (!sem) return true;
+    const d = attemptDateIso(a);
+    return !!d && d >= sem.startDate && d <= sem.endDate;
+  };
+
+  const classStudentSet = new Set(
+    ((window.state.students && window.state.students[cls]) || [])
+      .map(normalizeStudentName)
+      .filter(Boolean)
+  );
+
+  let filtered = attempts.filter((a) => {
+    if (!a) return false;
+    if (!inSem(a)) return false;
+    if (type === "student") return String(a.studentName || "") === String(stu || "");
+    // class/summary: беремо спроби учнів цього класу
+    return classStudentSet.has(String(a.studentName || ""));
+  });
+
+  if (sub && sub !== "all") {
+    filtered = filtered.filter((a) => {
+      const meta = resolveAttemptTestMeta(a, testsById);
+      return String(meta.subjectName || "") === String(sub);
+    });
+  }
+
+  filtered.sort((a, b) => {
+    const ta = a && a.completedAtIso ? new Date(a.completedAtIso).getTime() : 0;
+    const tb = b && b.completedAtIso ? new Date(b.completedAtIso).getTime() : 0;
+    return tb - ta;
+  });
+
+  const total = filtered.length;
+  const needsGrading = filtered.filter((a) => a && a.score && a.score.hasTextQuestions && a.score.pendingTextCount > 0).length;
+
+  const rows = filtered.slice(0, 200).map((a) => {
+    const meta = resolveAttemptTestMeta(a, testsById);
+    const date = a && a.completedAtIso ? new Date(a.completedAtIso).toLocaleString("uk-UA", { dateStyle: "short", timeStyle: "medium" }) : (a.date || "—");
+    const sc = a.score || { earnedPoints: 0, maxPoints: 0, pendingTextCount: 0, hasTextQuestions: false };
+    const pct = sc.maxPoints > 0 ? Math.round((sc.earnedPoints / sc.maxPoints) * 100) : 0;
+    const pctColor = pct >= 75 ? "var(--grade-10)" : pct >= 50 ? "var(--grade-7)" : "var(--grade-1)";
+    const status =
+      sc.hasTextQuestions && sc.pendingTextCount > 0
+        ? `<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:rgba(251,191,36,0.15);color:#d97706;font-size:11px;font-weight:600;">Очікує оцінки</span>`
+        : `<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:rgba(74,222,128,0.15);color:var(--grade-10);font-size:11px;font-weight:600;">Завершено</span>`;
+
+    return `
+      <tr>
+        <td>${window.esc(date)}</td>
+        <td>${window.esc(meta.title)}</td>
+        <td>${window.esc(a.studentName || "—")}</td>
+        <td style="text-align:center;">${sc.earnedPoints} / ${sc.maxPoints}</td>
+        <td style="text-align:center;font-weight:700;color:${pctColor};">${pct}%</td>
+        <td style="text-align:center;">${status}</td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--border-color);">
+      <h3 style="margin:0 0 8px;">Виконані тести</h3>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin:0 0 10px;font-size:13px;color:var(--text-secondary);">
+        <div><strong>Спроб:</strong> ${total}</div>
+        <div><strong>Очікують оцінки:</strong> <span style="color:${needsGrading ? 'var(--grade-4)' : 'var(--text-secondary)'}">${needsGrading}</span></div>
+      </div>
+      ${total === 0 ? `<p style="margin:0;color:var(--muted)">Немає виконаних тестів за обраними параметрами.</p>` : `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Тест</th>
+              <th>Учень</th>
+              <th style="text-align:center;">Бали</th>
+              <th style="text-align:center;">%</th>
+              <th style="text-align:center;">Статус</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${total > 200 ? `<p style="margin:8px 0 0;color:var(--muted);font-size:12px;">Показано перші 200 записів з ${total}.</p>` : ``}
+      `}
+    </div>
+  `;
 }
 
 export function renderReportPage() {
@@ -143,7 +274,9 @@ export function populateReportPageFilters() {
     studentSel.innerHTML = "";
     const selectedClass = classSel.value;
     if (!selectedClass || !window.state.students[selectedClass]) return;
-    window.state.students[selectedClass].forEach(st => {
+    window.state.students[selectedClass].forEach(entry => {
+      const st = normalizeStudentName(entry);
+      if (!st) return;
       const opt = document.createElement("option");
       opt.value = st; opt.textContent = st;
       studentSel.appendChild(opt);
@@ -313,7 +446,9 @@ export function generateReportHTML(type, cls, stu, sub, semIdx = "", gradeType =
     html += `<p><strong>Предмет:</strong> ${sub === 'all' ? 'Всі предмети' : window.esc(sub)} | <strong>Період:</strong> ${window.esc(semLabel)}</p>`;
 
     const studentsMap = {};
-    (window.state.students[cls] || []).forEach(st => {
+    (window.state.students[cls] || []).forEach(entry => {
+      const st = normalizeStudentName(entry);
+      if (!st) return;
       studentsMap[st] = { gradesSum: 0, gradesCount: 0, absences: 0, sick: 0, excused: 0, late: 0, hwDone: 0, hwTotal: 0 };
     });
 
@@ -381,7 +516,7 @@ export function generateReportHTML(type, cls, stu, sub, semIdx = "", gradeType =
     html += `<p><strong>Період:</strong> ${window.esc(semLabel)}</p>`;
 
     const subjects = [...new Set(filteredLessons.map(l => l.subject))].sort();
-    const studentNames = (window.state.students[cls] || []);
+    const studentNames = ((window.state.students[cls] || [])).map(normalizeStudentName).filter(Boolean);
 
     if (!subjects.length || !studentNames.length) {
       html += `<p style="color: var(--muted)">Немає даних.</p>`;
@@ -423,6 +558,8 @@ export function generateReportHTML(type, cls, stu, sub, semIdx = "", gradeType =
       html += `</tbody></table></div>`;
     }
   }
+
+  html += renderCompletedTestsSection({ type, cls, stu, sub, semIdx });
 
   return { html, title };
 }
