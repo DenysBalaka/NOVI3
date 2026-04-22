@@ -225,7 +225,11 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text-p
   background: var(--bg-light);
   border-bottom: 1px solid var(--border-color);
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge legacy */
 }
+.tabs::-webkit-scrollbar { height: 0; width: 0; display: none; } /* Chromium */
 .tab.dragging { opacity: 0.5; background: var(--accent); }
 .tab {
   background: transparent;
@@ -243,10 +247,11 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text-p
 }
 .tab:hover { background: rgba(255, 255, 255, 0.04); color: var(--text-primary); }
 .tab.active {
-  background: var(--bg);
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.18) 0%, rgba(15, 15, 17, 0.92) 70%);
   color: var(--text-primary);
-  border-color: var(--border-color);
+  border-color: rgba(99, 102, 241, 0.35);
   font-weight: 600;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.10), 0 8px 24px rgba(0,0,0,0.28);
 }
 .tab.active::after {
   content: '';
