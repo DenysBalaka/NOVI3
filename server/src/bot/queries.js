@@ -128,6 +128,22 @@ async function getTeacherNotifyChatIdsForClassName(className) {
   }
 }
 
+async function getTeacherNotifyChatId(teacherId) {
+  if (!teacherId) return null;
+  try {
+    const r = await pool.query(
+      `SELECT telegram_notify_chat_id AS chat_id FROM teachers WHERE id = $1::uuid`,
+      [teacherId]
+    );
+    const id = r.rows[0]?.chat_id;
+    return id != null ? id : null;
+  } catch (e) {
+    // Якщо в базі ще нема колонки (міграція не виконана) — просто вимикаємо сповіщення.
+    if (e.code === "42703") return null;
+    throw e;
+  }
+}
+
 module.exports = {
   getStudentByTelegram,
   getAvailableTests,
@@ -138,5 +154,6 @@ module.exports = {
   findStudentInClassByName,
   findStudentsByClassAndFullName,
   getTeacherNotifyChatIdsForClassName,
+  getTeacherNotifyChatId,
   insertAttempt,
 };

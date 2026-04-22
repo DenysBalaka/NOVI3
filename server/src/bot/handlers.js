@@ -51,6 +51,11 @@ function truncate(s, n) {
   return t.length <= n ? t : t.slice(0, n - 1) + "…";
 }
 
+function safePointsNumber(n) {
+  const x = typeof n === "number" ? n : Number(n);
+  return Number.isFinite(x) ? x : 0;
+}
+
 function isTextQuestionTypeName(qType) {
   const t = String(qType || "").toLowerCase().trim();
   return t === "text" || t === "textarea" || t === "open";
@@ -342,6 +347,26 @@ async function finishTest(ctx, session) {
     await ctx.reply("Помилка збереження результату. Спробуйте пізніше.", replyMainMenu());
     clearSession(session.sessionKey != null ? session.sessionKey : String(session.chatId));
     return;
+  }
+
+  // Сповіщення вчителя про проходження тесту (якщо вчитель додав свій Telegram user/chat id у налаштуваннях).
+  try {
+    const teacherChatId = await Q.getTeacherNotifyChatId(session.teacherId);
+    if (teacherChatId) {
+      const pts = safePointsNumber(score.earnedPoints);
+      const maxPts = safePointsNumber(score.maxPoints);
+      const msg =
+        `✅ Учень пройшов тест\n\n` +
+        `Учень: ${session.studentName || "—"}\n` +
+        `Тест: ${originalTest?.title || "—"}\n` +
+        `Бали: ${pts} з ${maxPts} (${pct}%)`;
+      await ctx.telegram.sendMessage(teacherChatId, msg);
+    }
+  } catch (e) {
+    console.error("[teacher notify after attempt]", {
+      teacherId: session.teacherId,
+      err: { name: e?.name, message: e?.message, stack: e?.stack },
+    });
   }
 
   let resultMessage;
