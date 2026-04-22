@@ -62,7 +62,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "TeacherJournal"
+      "shortcutName": "TeacherJournal",
+      "include": "assets/nsis-uninstall-warning.nsh"
     }
   }
 }
