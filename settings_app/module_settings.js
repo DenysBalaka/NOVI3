@@ -566,11 +566,20 @@ export function renderSettings() {
         const res = await window.tj.updateCheck();
         if (res?.error) {
           await window.showCustomAlert("Оновлення", res.error);
-        } else {
-          // Якщо оновлення є — діалог покаже main-процес; якщо ні — electron-updater просто промовчить.
+        } else if (res && res.available === false) {
+          const v = res.currentVersion ? String(res.currentVersion) : "";
           await window.showCustomAlert(
             "Оновлення",
-            "Перевірку запущено. Якщо доступна нова версія — з’явиться системне вікно з пропозицією оновитись."
+            v
+              ? `Встановлена версія актуальна (${v}). Новіших оновлень не знайдено.`
+              : "Новіших оновлень не знайдено."
+          );
+        } else {
+          await window.showCustomAlert(
+            "Оновлення",
+            res && res.available === true && res.remoteVersion
+              ? `Знайдено версію ${res.remoteVersion}. Має з’явитись вікно з пропозицією оновитись.`
+              : "Перевірку виконано. Якщо доступна нова версія — з’явиться системне вікно з пропозицією оновитись."
           );
         }
       } catch (e) {

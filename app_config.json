@@ -6,7 +6,8 @@
   "updates": {
     "checkIntervalHours": 6,
     "genericBaseUrl": "https://github.com/DenysBalaka/NOVI3/releases/latest/download",
-    "githubOwner": "",
-    "githubRepo": ""
+    "githubOwner": "DenysBalaka",
+    "githubRepo": "NOVI3",
+    "allowPrerelease": false
   }
 }

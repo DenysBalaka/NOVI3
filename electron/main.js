@@ -38,26 +38,57 @@ function ensureDirs(){
 const paths = ensureDirs();
 auth.init(paths.root);
 
-function loadAppConfig() {
+function readJsonFileSafe(p) {
   try {
-    const p = path.join(__dirname, "..", "app_config.json");
-    if (!fs.existsSync(p)) return {};
+    if (!fs.existsSync(p)) return null;
     return JSON.parse(fs.readFileSync(p, "utf8"));
   } catch (e) {
-    console.warn("app_config.json:", e.message);
-    return {};
+    console.warn(`app_config (${p}):`, e.message);
+    return null;
   }
 }
-const appConfig = loadAppConfig();
+
+/** Злиття: спочатку з пакета, поверх — %APPDATA%\\TeacherJournal\\app_config.json (можна виправити оновлення без перевстановлення). */
+function loadAppConfig() {
+  const bundledPath = path.join(__dirname, "..", "app_config.json");
+  const userPath = path.join(paths.root, "app_config.json");
+  const base = readJsonFileSafe(bundledPath) || {};
+  const user = readJsonFileSafe(userPath);
+  if (!user) return base;
+  const bu = base.updates && typeof base.updates === "object" ? base.updates : {};
+  const uu = user.updates && typeof user.updates === "object" ? user.updates : {};
+  return {
+    ...base,
+    ...user,
+    updates: { ...bu, ...uu },
+  };
+}
+
+function getAppConfig() {
+  return loadAppConfig();
+}
+
+/** URL виду …/github.com/owner/repo/releases/latest/download → owner/repo для electron-updater (provider: github). */
+function parseGithubLatestDownloadBaseUrl(url) {
+  const s = String(url || "").trim();
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases\/latest\/download\/?$/i.exec(s);
+  if (!m) return null;
+  return { owner: m[1], repo: m[2] };
+}
 
 function readUpdateConfig() {
-  const upd = appConfig && typeof appConfig === "object" ? appConfig.updates : null;
+  const appCfg = getAppConfig();
+  const upd = appCfg && typeof appCfg === "object" ? appCfg.updates : null;
   const obj = upd && typeof upd === "object" ? upd : {};
   const genericBaseUrl = typeof obj.genericBaseUrl === "string" ? obj.genericBaseUrl.trim().replace(/\/+$/, "") : "";
   const owner = typeof obj.githubOwner === "string" ? obj.githubOwner.trim() : "";
   const repo = typeof obj.githubRepo === "string" ? obj.githubRepo.trim() : "";
+  const parsed = parseGithubLatestDownloadBaseUrl(genericBaseUrl);
+  const effectiveOwner = owner || (parsed && parsed.owner) || "";
+  const effectiveRepo = repo || (parsed && parsed.repo) || "";
+  const allowPrerelease = obj.allowPrerelease === true;
   const checkIntervalHours = clampInt(obj.checkIntervalHours, 1, 48, 6);
-  return { genericBaseUrl, owner, repo, checkIntervalHours };
+  return { genericBaseUrl, owner, repo, effectiveOwner, effectiveRepo, allowPrerelease, checkIntervalHours };
 }
 
 let __autoUpdateConfigured = false;
@@ -71,19 +102,23 @@ function configureAutoUpdaterOnce() {
     return { error: __autoUpdateConfigError };
   }
 
-  const { genericBaseUrl, owner, repo, checkIntervalHours } = readUpdateConfig();
+  const { genericBaseUrl, effectiveOwner, effectiveRepo, allowPrerelease, checkIntervalHours } = readUpdateConfig();
 
-  if (!genericBaseUrl && !(owner && repo)) {
+  if (!(effectiveOwner && effectiveRepo) && !genericBaseUrl) {
     __autoUpdateConfigError = "Оновлення не налаштовано (немає updates.genericBaseUrl або updates.githubOwner/updates.githubRepo).";
     console.warn("AutoUpdate disabled: no updates config in app_config.json (updates.*).");
     return { error: __autoUpdateConfigError };
   }
 
   try {
-    if (genericBaseUrl) {
+    autoUpdater.allowPrerelease = allowPrerelease;
+    if (effectiveOwner && effectiveRepo) {
+      autoUpdater.setFeedURL({ provider: "github", owner: effectiveOwner, repo: effectiveRepo });
+    } else if (genericBaseUrl) {
       autoUpdater.setFeedURL({ provider: "generic", url: genericBaseUrl + "/" });
     } else {
-      autoUpdater.setFeedURL({ provider: "github", owner, repo });
+      __autoUpdateConfigError = "Оновлення не налаштовано (немає updates.genericBaseUrl або updates.githubOwner/updates.githubRepo).";
+      return { error: __autoUpdateConfigError };
     }
   } catch (e) {
     __autoUpdateConfigError = "Не вдалося налаштувати джерело оновлень.";
@@ -226,6 +261,28 @@ function clampInt(n, min, max, fallback) {
   const v = Number.parseInt(String(n), 10);
   if (Number.isNaN(v)) return fallback;
   return Math.max(min, Math.min(max, v));
+}
+
+function formatAutoUpdateCheckError(err) {
+  const msg = err && err.message ? String(err.message) : String(err || "");
+  const code = err && err.code ? String(err.code) : "";
+  const hay = `${msg} ${code}`;
+  if (/ERR_UPDATER_CHANNEL_FILE_NOT_FOUND|Cannot find channel/i.test(hay) || /\b404\b/.test(hay)) {
+    return (
+      "Не знайдено latest.yml у релізі або не збігаються імена .exe / .blockmap з вмістом latest.yml. " +
+      "Викладіть на GitHub усі файли з папки dist однієї збірки без перейменування інсталятора."
+    );
+  }
+  if (/ERR_UPDATER_INVALID_VERSION/i.test(hay)) {
+    return "У метаданих оновлення некоректна версія (потрібен semver, наприклад 2.4.2).";
+  }
+  if (/ERR_UPDATER_LATEST_VERSION_NOT_FOUND|No published versions/i.test(hay) || /\b403\b/.test(hay)) {
+    return (
+      "GitHub не віддає реліз (репозиторій приватний, немає production-релізу або немає доступу). " +
+      "Для автооновлення без токена репозиторій має бути публічним."
+    );
+  }
+  return "Не вдалося перевірити оновлення. Перевірте інтернет або повторіть пізніше.";
 }
 
 function toDataSvgCaption(caption) {
@@ -790,11 +847,22 @@ ipcMain.handle("tj:update-check", async () => {
   const cfg = configureAutoUpdaterOnce();
   if (cfg?.error) return { error: cfg.error };
   try {
-    await autoUpdater.checkForUpdates();
-    return { ok: true };
+    const result = await autoUpdater.checkForUpdates();
+    if (result == null) {
+      return { error: "Перевірка оновлень доступна лише у встановленій (зібраній) версії програми." };
+    }
+    if (result.isUpdateAvailable === false) {
+      return { ok: true, available: false, currentVersion: app.getVersion() };
+    }
+    return {
+      ok: true,
+      available: true,
+      currentVersion: app.getVersion(),
+      remoteVersion: result.updateInfo && result.updateInfo.version ? String(result.updateInfo.version) : "",
+    };
   } catch (e) {
     console.error("Manual update check failed:", safeErrObj(e));
-    return { error: "Не вдалося перевірити оновлення. Перевірте інтернет або спробуйте пізніше." };
+    return { error: formatAutoUpdateCheckError(e) };
   }
 });
 
@@ -808,7 +876,7 @@ ipcMain.handle("tj:open-board-window", (e, boardPath) => createBoardWindow(board
 // === IPC: Файли ===
 ipcMain.handle("tj:get-paths", () => paths);
 
-ipcMain.handle("tj:get-app-config", () => ({ ...appConfig }));
+ipcMain.handle("tj:get-app-config", () => ({ ...getAppConfig() }));
 
 ipcMain.handle("tj:open-external", async (_e, url) => {
   const u = typeof url === "string" ? url.trim() : "";
@@ -833,7 +901,7 @@ ipcMain.handle("tj:telegram-reload", () => {
 
 ipcMain.handle("tj:cloud-api", async (_e, { method = "GET", path: apiPath, body }) => {
   const settings = readSettingsJson();
-  const base = String(settings.cloudApiBaseUrl || appConfig.defaultCloudApiBaseUrl || "")
+  const base = String(settings.cloudApiBaseUrl || getAppConfig().defaultCloudApiBaseUrl || "")
     .trim()
     .replace(/\/$/, "");
   const key = String(settings.cloudApiKey || "").trim();
@@ -873,7 +941,7 @@ ipcMain.handle("tj:cloud-api", async (_e, { method = "GET", path: apiPath, body 
 });
 
 ipcMain.handle("tj:cloud-register", async (_e, { baseUrl, displayName, school }) => {
-  const base = String(baseUrl || appConfig.defaultCloudApiBaseUrl || "")
+  const base = String(baseUrl || getAppConfig().defaultCloudApiBaseUrl || "")
     .trim()
     .replace(/\/$/, "");
   if (!base) {
