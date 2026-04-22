@@ -102,7 +102,7 @@ function renderGrid(classFilter) {
   });
 }
 
-function showAddLessonDialog(defaultClass, onSave, preDay, preLn) {
+export function showAddLessonDialog(defaultClass, onSave, preDay, preLn, options = {}) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const dialog = document.createElement("div");
@@ -143,6 +143,12 @@ function showAddLessonDialog(defaultClass, onSave, preDay, preLn) {
   `;
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+
+  // Опційно блокуємо вибір дня, коли викликаємо діалог з календаря
+  if (options && options.lockDay) {
+    const daySel = window.$("#sd-day", dialog);
+    if (daySel) daySel.disabled = true;
+  }
 
   window.$("#sd-cancel", dialog).onclick = () => overlay.remove();
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };

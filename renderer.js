@@ -6,11 +6,11 @@ import { renderLesson, renderLessonsList, openOrCreateLesson, renderNewLessonDia
 import { renderEditorPage, populateEditorClasses, moveClassOrder, populateEditorSubjects, showEditorContextMenu, bindEditorPageLogic } from './module_students.js';
 import { renderTests, renderTestResults, renderRunTest, calcScore, previewImage, refreshTestsIfOpen, syncAttemptsFromCloud } from './module_tests.js';
 import { renderReportPage, populateReportPageFilters, bindReportPageLogic, generateReportHTML } from './module_reports.js';
-import { renderNotesPage } from './module_notes.js';
+import { renderNotesPage, createNewNote, showNotePopupEditor } from './module_notes.js';
 import { renderSettings, updateGoogleAuthStatusUI } from './settings_app/module_settings.js';
 import { renderExportPage } from './module_export.js';
 import { renderBoardPage, createNewBoard } from './board_app/module_board.js';
-import { renderSchedulePage } from './module_schedule.js';
+import { renderSchedulePage, showAddLessonDialog } from './module_schedule.js';
 import { renderClassJournalPage } from './module_class_journal.js';
 import { renderCurriculumPage } from './module_curriculum.js';
 
@@ -44,11 +44,12 @@ window.renderEditorPage = renderEditorPage; window.populateEditorClasses = popul
 window.populateEditorSubjects = populateEditorSubjects; window.showEditorContextMenu = showEditorContextMenu; window.bindEditorPageLogic = bindEditorPageLogic;
 window.renderTests = renderTests; window.renderTestResults = renderTestResults; window.renderRunTest = renderRunTest; window.calcScore = calcScore; window.previewImage = previewImage; window.refreshTestsIfOpen = refreshTestsIfOpen;
 window.renderReportPage = renderReportPage; window.populateReportPageFilters = populateReportPageFilters; window.bindReportPageLogic = bindReportPageLogic; window.generateReportHTML = generateReportHTML;
-window.renderNotesPage = renderNotesPage; window.renderSettings = renderSettings; window.renderExportPage = renderExportPage;
+window.renderNotesPage = renderNotesPage; window.createNewNote = createNewNote; window.showNotePopupEditor = showNotePopupEditor; window.renderSettings = renderSettings; window.renderExportPage = renderExportPage;
 window.renderBoardPage = renderBoardPage; window.createNewBoard = createNewBoard;
 window.showCalendarContextMenu = showCalendarContextMenu; window.showLessonListContextMenu = showLessonListContextMenu;
 window.sanitizeHTML = sanitizeHTML;
 window.renderSchedulePage = renderSchedulePage;
+window.showAddScheduleLessonDialog = showAddLessonDialog;
 window.renderClassJournalPage = renderClassJournalPage;
 window.renderCurriculumPage = renderCurriculumPage;
 

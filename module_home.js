@@ -293,16 +293,50 @@ export function renderHome(){
  * === ПОВНІСТЮ ОНОВЛЕНА ФУНКЦІЯ КОНТЕКСТНОГО МЕНЮ ===
  */
 export async function showCalendarContextMenu(e, dateKey, noteCount) { // Змінено noteContent на noteCount
-  const menuItems = [
-    {
-      // Оновлений лейбл
-      label: noteCount > 0 ? "Перейти до заміток" : "Додати замітку",
-      click: () => {
-        // 'contextData' змусить сторінку нотаток відкритися на потрібній даті
+  const currentDate = new Date(dateKey);
+  const dayIdx = (currentDate.getDay() + 6) % 7; // 0..6 (пн..нд)
+
+  const menuItems = [];
+
+  menuItems.push({
+    label: "Створити замітку",
+    click: () => {
+      if (typeof window.showNotePopupEditor === "function") {
+        window.showNotePopupEditor(dateKey);
+      } else if (typeof window.createNewNote === "function") {
+        window.createNewNote(dateKey);
+        window.renderHome(); // оновити індикатори в календарі
+      } else {
         window.openTab("notes", "Замітки", window.renderNotesPage, { date: dateKey });
       }
     }
-  ];
+  });
+
+  if (noteCount > 0) {
+    menuItems.push({
+      label: `Перейти до заміток (${noteCount})`,
+      click: () => {
+        window.openTab("notes", "Замітки", window.renderNotesPage, { date: dateKey });
+      }
+    });
+  }
+
+  menuItems.push({ type: 'separator' });
+
+  menuItems.push({
+    label: "Додати урок у розклад цього дня",
+    click: () => {
+      if (dayIdx > 4) {
+        window.showCustomAlert("Розклад", "Розклад доступний лише для будніх днів (Пн–Пт).");
+        return;
+      }
+      if (typeof window.showAddScheduleLessonDialog === "function") {
+        window.showAddScheduleLessonDialog("", () => window.renderHome(), dayIdx, 1, { lockDay: true });
+      } else {
+        window.openTab("schedule", "Розклад", window.renderSchedulePage);
+      }
+    }
+  });
   
   // Оновлена логіка: показуємо кнопку, якщо є хоча б одна замітка
   if (noteCount > 0) { 

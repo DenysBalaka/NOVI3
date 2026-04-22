@@ -208,8 +208,8 @@ export function renderNotesPage(contextData) {
   populateNotesList();
 }
 
-// === createNewNote (Без змін) ===
-function createNewNote(date) {
+// === createNewNote (експортуємо для календаря) ===
+export function createNewNote(date) {
   const newId = "note_" + Date.now();
   window.state.notes[newId] = {
     id: newId,
@@ -219,6 +219,120 @@ function createNewNote(date) {
   };
   window.saveNotes();
   openNoteEditorTab(newId);
+}
+
+export function showNotePopupEditor(date) {
+  migrateNotesIfNeeded();
+
+  const noteId = "note_" + Date.now();
+  window.state.notes[noteId] = {
+    id: noteId,
+    date,
+    content: "",
+    createdAt: Date.now()
+  };
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+
+  const dialog = document.createElement("div");
+  dialog.className = "modal-dialog";
+  dialog.style.maxWidth = "900px";
+
+  const formattedDate = new Date(date).toLocaleDateString("uk-UA", {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  });
+
+  dialog.innerHTML = `
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+      <div>
+        <h3 style="margin:0;">${window.esc(formattedDate)}</h3>
+        <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">Замітка</div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+        <button class="btn danger" id="note-popup-cancel">Скасувати</button>
+        <button class="btn" id="note-popup-save">Зберегти</button>
+      </div>
+    </div>
+    <div id="note-popup-toolbar-mount" style="margin-top: 14px;"></div>
+    <div id="note-popup-rich-editor" class="rich-editor" contenteditable="true" style="min-height: 320px; margin-top: 10px;"></div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  const richEditor = window.$("#note-popup-rich-editor", dialog);
+  const saveBtn = window.$("#note-popup-save", dialog);
+  const cancelBtn = window.$("#note-popup-cancel", dialog);
+  const toolbarMount = window.$("#note-popup-toolbar-mount", dialog);
+
+  toolbarMount.appendChild(createEditorToolbar(richEditor));
+  richEditor.innerHTML = '<p><br></p>';
+
+  const cleanupEmptyDraftIfNeeded = () => {
+    const current = window.state.notes[noteId];
+    if (!current) return;
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = current.content || "";
+    const hasText = (tempDiv.textContent || "").trim().length > 0;
+    const hasImages = tempDiv.querySelector('img') !== null;
+    if (!hasText && !hasImages) delete window.state.notes[noteId];
+  };
+
+  const close = () => {
+    overlay.remove();
+    window.renderHome && window.renderHome();
+  };
+
+  cancelBtn.onclick = () => {
+    delete window.state.notes[noteId];
+    window.saveNotes();
+    close();
+  };
+
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      delete window.state.notes[noteId];
+      window.saveNotes();
+      close();
+    }
+  };
+
+  saveBtn.onclick = () => {
+    let newHtml = richEditor.innerHTML;
+    const trimmedHtml = newHtml.trim();
+    if (trimmedHtml === '<p><br></p>' || trimmedHtml === '<p><br/></p>') newHtml = "";
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = newHtml;
+    const hasText = (tempDiv.textContent || "").trim().length > 0;
+    const hasImages = tempDiv.querySelector('img') !== null;
+
+    if (hasText || hasImages) {
+      window.state.notes[noteId].content = newHtml;
+      window.state.notes[noteId].createdAt = Date.now();
+    } else {
+      delete window.state.notes[noteId];
+    }
+
+    window.saveNotes();
+    cleanupEmptyDraftIfNeeded();
+    close();
+  };
+
+  // фокус + курсор на старт
+  setTimeout(() => {
+    try {
+      richEditor.focus();
+      const range = document.createRange();
+      const sel = window.getSelection();
+      const firstChild = richEditor.firstChild || richEditor;
+      range.setStart(firstChild, 0);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch (_) {}
+  }, 0);
 }
 
 // === openNoteEditorTab (ОНОВЛЕНО) ===
