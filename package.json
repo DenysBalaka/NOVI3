@@ -1,6 +1,6 @@
 {
   "name": "teacherjournal",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "TeacherJournal desktop Electron app (installer-based)",
   "author": "Denis Balaka <balaka185@gmail.com>",
   "main": "electron/main.js",
