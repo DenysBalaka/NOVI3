@@ -94,6 +94,361 @@ async function handleAutoSyncResult(res, isLoginAttempt = false) {
 
 document.addEventListener('DOMContentLoaded', init);
 
+function pad2(n) { return String(n).padStart(2, "0"); }
+function toHm(date) { return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`; }
+function parseHmToMinutes(hm) {
+  const m = String(hm || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]); const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+function minutesToHm(mins) {
+  const m = Math.max(0, Math.min(23 * 60 + 59, Number(mins) || 0));
+  return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+}
+
+function getDefaultBellSchedule() {
+  // Типовий приклад (можете відредагувати через модалку)
+  // breakMinutes — перерва після цього уроку.
+  return {
+    lessons: [
+      { n: 1, start: "08:30", end: "09:15", breakMinutes: 10 },
+      { n: 2, start: "09:25", end: "10:10", breakMinutes: 10 },
+      { n: 3, start: "10:20", end: "11:05", breakMinutes: 15 },
+      { n: 4, start: "11:20", end: "12:05", breakMinutes: 10 },
+      { n: 5, start: "12:15", end: "13:00", breakMinutes: 10 },
+      { n: 6, start: "13:10", end: "13:55", breakMinutes: 10 },
+      { n: 7, start: "14:05", end: "14:50", breakMinutes: 10 },
+      { n: 8, start: "15:00", end: "15:45", breakMinutes: 10 },
+      { n: 9, start: "15:55", end: "16:40", breakMinutes: 10 },
+      { n: 10, start: "16:50", end: "17:35", breakMinutes: 0 },
+    ],
+  };
+}
+
+function normalizeBellSchedule(raw) {
+  const def = getDefaultBellSchedule();
+  const src = raw && typeof raw === "object" ? raw : def;
+  const lessonsIn = Array.isArray(src.lessons) ? src.lessons : def.lessons;
+  const lessons = lessonsIn
+    .map((x, idx) => {
+      const n = Number(x?.n ?? (idx + 1));
+      const start = String(x?.start ?? "").trim();
+      const end = String(x?.end ?? "").trim();
+      const breakMinutes = Number(x?.breakMinutes ?? 0);
+      return {
+        n: Number.isFinite(n) ? n : (idx + 1),
+        start: /^\d{1,2}:\d{2}$/.test(start) ? start : def.lessons[Math.min(idx, def.lessons.length - 1)].start,
+        end: /^\d{1,2}:\d{2}$/.test(end) ? end : def.lessons[Math.min(idx, def.lessons.length - 1)].end,
+        breakMinutes: Number.isFinite(breakMinutes) ? Math.max(0, Math.min(120, Math.round(breakMinutes))) : 0,
+      };
+    })
+    .filter((x) => Number.isFinite(x.n))
+    .sort((a, b) => a.n - b.n);
+  return { lessons };
+}
+
+function getBellSchedule() {
+  const s = window.state?.settings || {};
+  const normalized = normalizeBellSchedule(s.bellSchedule);
+  // Міграція/самовиправлення: якщо поля не було — встановимо дефолт, щоб зберігалось надалі.
+  if (!s.bellSchedule) {
+    window.state.settings.bellSchedule = normalized;
+    window.saveSettings();
+  } else {
+    window.state.settings.bellSchedule = normalized;
+  }
+  return normalized;
+}
+
+function computeBellTimeline(schedule) {
+  // Повертає масив інтервалів: уроки + перерви між ними.
+  const lessons = (schedule?.lessons || []).map((l) => ({
+    n: l.n,
+    startMin: parseHmToMinutes(l.start),
+    endMin: parseHmToMinutes(l.end),
+    breakMinutes: Number(l.breakMinutes || 0),
+    start: l.start,
+    end: l.end,
+  })).filter((l) => l.startMin !== null && l.endMin !== null && l.endMin > l.startMin);
+
+  const items = [];
+  for (let i = 0; i < lessons.length; i++) {
+    const cur = lessons[i];
+    items.push({
+      kind: "lesson",
+      n: cur.n,
+      startMin: cur.startMin,
+      endMin: cur.endMin,
+      label: `Урок ${cur.n}`,
+      range: `${cur.start}–${cur.end}`,
+      breakMinutes: cur.breakMinutes,
+    });
+    if (cur.breakMinutes > 0) {
+      const brStart = cur.endMin;
+      const brEnd = cur.endMin + cur.breakMinutes;
+      items.push({
+        kind: "break",
+        afterN: cur.n,
+        startMin: brStart,
+        endMin: brEnd,
+        label: `Перерва`,
+        range: `${minutesToHm(brStart)}–${minutesToHm(brEnd)}`,
+        breakMinutes: cur.breakMinutes,
+      });
+    }
+  }
+  return { lessons, items };
+}
+
+function getActiveBellItem(now = new Date(), schedule = getBellSchedule()) {
+  const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  const { items } = computeBellTimeline(schedule);
+  const active = items.find((it) => nowMin >= it.startMin && nowMin < it.endMin) || null;
+  let next = null;
+  for (const it of items) {
+    if (it.startMin > nowMin) { next = it; break; }
+  }
+  return { active, next };
+}
+
+function showBellSettingsModal() {
+  const schedule = getBellSchedule();
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "bell-settings-overlay";
+
+  const dialog = document.createElement("div");
+  dialog.className = "modal-dialog";
+  dialog.style.maxWidth = "640px";
+
+  const lessons = schedule.lessons || [];
+  const maxN = lessons.length ? Math.max(...lessons.map((l) => l.n)) : 1;
+
+  dialog.innerHTML = `
+    <h3>Налаштування дзвінків</h3>
+    <div style="color:var(--text-secondary);font-size:13px;margin-top:-8px;margin-bottom:14px;line-height:1.45;">
+      Виберіть номер уроку та задайте час початку/кінця й тривалість перерви після нього.
+    </div>
+    <div class="config-box bell-config" style="margin-bottom:0;">
+      <div class="bell-config__top">
+        <div class="form-group bell-config__lesson">
+          <label>Номер уроку</label>
+          <select class="input" id="bell-n"></select>
+        </div>
+        <div class="bell-config__actions">
+          <button class="btn ghost" id="bell-add">+ Додати урок</button>
+          <button class="btn ghost danger" id="bell-del">Видалити урок</button>
+        </div>
+      </div>
+
+      <div class="bell-config__times">
+        <div class="form-group">
+          <label>Початок</label>
+          <input class="input" id="bell-start" type="time" step="60">
+        </div>
+        <div class="form-group">
+          <label>Кінець</label>
+          <input class="input" id="bell-end" type="time" step="60">
+        </div>
+        <div class="form-group">
+          <label>Перерва (хв)</label>
+          <input class="input" id="bell-break" type="number" min="0" max="120" step="1" value="0">
+        </div>
+        <div class="bell-config__breakActions">
+          <button class="btn ghost" id="bell-del-break">Прибрати перерву</button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:12px;color:var(--muted);font-size:12px;line-height:1.45;">
+      Порада: якщо часи “з’їхали”, додайте/відредагуйте уроки послідовно.
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="bell-cancel">Скасувати</button>
+      <button class="btn" id="bell-save">Зберегти</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  const selN = dialog.querySelector("#bell-n");
+  const inpStart = dialog.querySelector("#bell-start");
+  const inpEnd = dialog.querySelector("#bell-end");
+  const inpBreak = dialog.querySelector("#bell-break");
+  const btnAdd = dialog.querySelector("#bell-add");
+  const btnDel = dialog.querySelector("#bell-del");
+  const btnDelBreak = dialog.querySelector("#bell-del-break");
+  const btnCancel = dialog.querySelector("#bell-cancel");
+  const btnSave = dialog.querySelector("#bell-save");
+
+  const local = normalizeBellSchedule({ lessons: lessons.map((l) => ({ ...l })) });
+
+  function ensureLesson(n) {
+    let l = local.lessons.find((x) => x.n === n);
+    if (!l) {
+      // Спробуємо підставити логічні дефолти від попереднього уроку
+      const prev = local.lessons.slice().sort((a,b)=>a.n-b.n).reverse().find((x) => x.n < n);
+      const start = prev ? prev.end : "08:30";
+      const endMin = (parseHmToMinutes(start) ?? 510) + 45;
+      l = { n, start, end: minutesToHm(endMin), breakMinutes: 10 };
+      local.lessons.push(l);
+      local.lessons.sort((a,b)=>a.n-b.n);
+    }
+    return l;
+  }
+
+  function fillSelect() {
+    selN.innerHTML = "";
+    const nums = local.lessons.map((l) => l.n).sort((a,b)=>a-b);
+    // якщо чомусь порожньо — зробимо 1
+    const list = nums.length ? nums : [1];
+    list.forEach((n) => {
+      const opt = document.createElement("option");
+      opt.value = String(n);
+      opt.textContent = String(n);
+      selN.appendChild(opt);
+    });
+  }
+
+  function loadLessonToForm(n) {
+    const l = ensureLesson(n);
+    inpStart.value = l.start;
+    inpEnd.value = l.end;
+    inpBreak.value = String(l.breakMinutes ?? 0);
+  }
+
+  fillSelect();
+  loadLessonToForm(local.lessons[0]?.n ?? 1);
+
+  selN.addEventListener("change", () => loadLessonToForm(Number(selN.value)));
+  btnAdd.addEventListener("click", (e) => {
+    e.preventDefault();
+    const nextN = Math.max(...local.lessons.map((l)=>l.n)) + 1;
+    ensureLesson(nextN);
+    fillSelect();
+    selN.value = String(nextN);
+    loadLessonToForm(nextN);
+  });
+  btnDel.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (!local.lessons.length) return;
+    const n = Number(selN.value);
+    const confirmed = await window.showCustomConfirm(
+      "Видалити урок",
+      `Видалити урок №${n} (разом із перервою після нього)?`,
+      "Видалити",
+      "Скасувати",
+      true
+    );
+    if (!confirmed) return;
+    local.lessons = local.lessons.filter((x) => x.n !== n);
+    fillSelect();
+    const remaining = local.lessons.map((x) => x.n).sort((a,b)=>a-b);
+    const pick = remaining.length ? remaining[Math.max(0, remaining.findIndex((x)=>x>n)-1)] : 1;
+    selN.value = String(pick);
+    loadLessonToForm(pick);
+  });
+  btnDelBreak.addEventListener("click", (e) => {
+    e.preventDefault();
+    const n = Number(selN.value);
+    const l = ensureLesson(n);
+    l.breakMinutes = 0;
+    inpBreak.value = "0";
+  });
+
+  function close() { overlay.remove(); }
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  btnCancel.addEventListener("click", close);
+
+  btnSave.addEventListener("click", async () => {
+    const n = Number(selN.value);
+    const l = ensureLesson(n);
+
+    const start = inpStart.value;
+    const end = inpEnd.value;
+    const breakMinutes = Number(inpBreak.value);
+
+    const sMin = parseHmToMinutes(start);
+    const eMin = parseHmToMinutes(end);
+    if (sMin === null || eMin === null || eMin <= sMin) {
+      dialog.classList.add("shake");
+      setTimeout(() => dialog.classList.remove("shake"), 420);
+      await window.showCustomAlert("Помилка", "Перевірте час початку/кінця (кінець має бути пізніше за початок).");
+      return;
+    }
+    if (!Number.isFinite(breakMinutes) || breakMinutes < 0 || breakMinutes > 120) {
+      dialog.classList.add("shake");
+      setTimeout(() => dialog.classList.remove("shake"), 420);
+      await window.showCustomAlert("Помилка", "Перерва має бути числом від 0 до 120 хв.");
+      return;
+    }
+
+    l.start = start;
+    l.end = end;
+    l.breakMinutes = Math.round(breakMinutes);
+
+    // Збереження
+    window.state.settings.bellSchedule = normalizeBellSchedule(local);
+    window.saveSettings();
+    if (typeof window.updateLessonRibbon === "function") window.updateLessonRibbon(true);
+    close();
+  });
+}
+
+function initLessonRibbon() {
+  const el = document.getElementById("lesson-ribbon");
+  if (!el) return;
+
+  el.innerHTML = `
+    <button class="lesson-ribbon__clock" id="lesson-ribbon-clock" type="button" title="Налаштувати дзвінки">
+      <span class="lesson-ribbon__clockIcon">🕒</span>
+      <span id="lesson-ribbon-time">--:--</span>
+    </button>
+    <div class="lesson-ribbon__meta">
+      <div class="lesson-ribbon__now" id="lesson-ribbon-now">Розклад не налаштовано</div>
+    </div>
+  `;
+
+  const clockBtn = document.getElementById("lesson-ribbon-clock");
+  if (clockBtn) clockBtn.addEventListener("click", () => showBellSettingsModal());
+
+  let timerId = null;
+  window.updateLessonRibbon = function updateLessonRibbon(force = false) {
+    try {
+      const now = new Date();
+      const timeEl = document.getElementById("lesson-ribbon-time");
+      if (timeEl) timeEl.textContent = toHm(now);
+
+      const schedule = getBellSchedule();
+      const { lessons, items } = computeBellTimeline(schedule);
+      const { active, next } = getActiveBellItem(now, schedule);
+
+      const nowEl = document.getElementById("lesson-ribbon-now");
+      if (nowEl) {
+        if (!lessons.length) {
+          nowEl.textContent = "Розклад не налаштовано";
+        } else if (active) {
+          if (active.kind === "lesson") nowEl.textContent = `Зараз: урок ${active.n} (${active.range})`;
+          else nowEl.textContent = `Зараз: перерва (${active.range})`;
+        } else {
+          // Користувач просив показувати лише поточний урок/перерву
+          nowEl.textContent = "Зараз: немає уроку/перерви";
+        }
+      }
+    } catch (e) {
+      // Стрічка не повинна ламати апку
+      console.warn("Lesson ribbon error:", e);
+    }
+  };
+
+  window.updateLessonRibbon(true);
+  if (timerId) clearInterval(timerId);
+  timerId = setInterval(() => window.updateLessonRibbon(false), 1000);
+}
+
 async function init(){
   console.log("Renderer init");
   window.mainHeader = window.$("#main-header-greeting");
@@ -186,6 +541,10 @@ async function init(){
     schedule: (await window.tj.readJSON(window.paths.schedulePath)) || [],
     curriculum: (await window.tj.readJSON(window.paths.curriculumPath)) || []
   };
+
+  // Ініціалізуємо "дзвінки" (розклад уроків/перерв) + стрічку під заголовком
+  try { getBellSchedule(); } catch (_) {}
+  initLessonRibbon();
 
   window.$("#win-min").onclick = ()=> window.tj.winMin();
   window.$("#win-max").onclick = ()=> window.tj.winMax();
