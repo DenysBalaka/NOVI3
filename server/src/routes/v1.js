@@ -188,6 +188,32 @@ router.get("/tests", async (req, res) => {
   }
 });
 
+/** GET /api/v1/tests/:externalId — повний payload для web UI */
+router.get("/tests/:externalId", async (req, res) => {
+  const tid = req.teacher.id;
+  const externalId = req.params.externalId;
+  try {
+    const r = await pool.query(
+      `SELECT external_id, title, payload_json
+       FROM tests
+       WHERE teacher_id = $1 AND external_id = $2`,
+      [tid, externalId]
+    );
+    if (r.rows.length === 0) {
+      res.status(404).json({ error: "Тест не знайдено" });
+      return;
+    }
+    res.json({
+      externalId: r.rows[0].external_id,
+      title: r.rows[0].title,
+      payloadJson: r.rows[0].payload_json,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Помилка" });
+  }
+});
+
 router.delete("/tests/:externalId", async (req, res) => {
   const tid = req.teacher.id;
   const externalId = req.params.externalId;

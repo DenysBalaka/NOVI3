@@ -1,5 +1,6 @@
 const { Telegraf, Markup } = require("telegraf");
 const { buildRunTest, calcScore, dataUrlToBuffer, shuffleArray } = require("../testLogic");
+const { signOpenTestNavToken } = require("../telegramMiniApp/sign");
 const Q = require("./queries");
 
 const MENU_BTN_CHOOSE_TEST = "📋 Обрати тест";
@@ -560,6 +561,12 @@ async function handleStartCommand(ctx) {
   }
 }
 
+function getTelegramWebAppPublicBase() {
+  const raw =
+    process.env.TELEGRAM_WEBAPP_BASE_URL || process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || "";
+  return raw ? raw.replace(/\/$/, "") : "";
+}
+
 async function showTestPicker(ctx) {
   const sk = sessionKey(ctx);
   const replyChatId = ctx.chat.id;
@@ -582,8 +589,27 @@ async function showTestPicker(ctx) {
     return;
   }
 
-  const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
-  await ctx.reply("Оберіть тест:", Markup.inlineKeyboard(rows));
+  const publicBase = getTelegramWebAppPublicBase();
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  let rows;
+  let intro;
+  if (publicBase && botToken) {
+    intro = "Оберіть тест — відкриється вікно Telegram (Mini App):";
+    rows = list.map((t) => {
+      const nav = signOpenTestNavToken(botToken, t.id);
+      const url = `${publicBase}/telegram-app?t=${encodeURIComponent(nav)}`;
+      return [Markup.button.webApp(truncate(t.title, 50), url)];
+    });
+  } else {
+    intro = "Оберіть тест:";
+    rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
+  }
+  await ctx.reply(intro, Markup.inlineKeyboard(rows));
+  if (!publicBase) {
+    await ctx.reply(
+      "Щоб тести відкривались у вбудованому вікні Web App, задайте на сервері HTTPS-адресу в змінній PUBLIC_URL (або TELEGRAM_WEBAPP_BASE_URL)."
+    );
+  }
   await sendMenuButtonKeyboard(ctx);
   const s = getSession(sk);
   s.step = "pick";
@@ -867,7 +893,10 @@ function createBot() {
       return;
     }
     if (s.step === "pick") {
-      await ctx.reply("Оберіть тест кнопками вище або натисніть «" + MENU_BTN_CHOOSE_TEST + "» внизу.", replyMainMenu());
+      await ctx.reply(
+        "Оберіть тест кнопками в повідомленні вище (Mini App) або натисніть «" + MENU_BTN_CHOOSE_TEST + "» внизу.",
+        replyMainMenu()
+      );
       return;
     }
 

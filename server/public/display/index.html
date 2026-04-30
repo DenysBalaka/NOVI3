@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Показ тестів</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/display/styles.css" />
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true"></div>
+
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="dot"></div>
+          <div>
+            <div class="brand__title">Вітрина тестів</div>
+            <div class="brand__sub">Один тест на екран · автоперемикання</div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="btnPrev" class="btn" type="button" title="Попередній">Назад</button>
+          <button id="btnPlayPause" class="btn btn--primary" type="button" title="Пауза/продовжити">Пауза</button>
+          <button id="btnNext" class="btn" type="button" title="Наступний">Далі</button>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel__left">
+          <div class="field">
+            <label class="label" for="apiKey">API key</label>
+            <input id="apiKey" class="input" placeholder="Вставте ключ (X-Api-Key)" autocomplete="off" />
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label class="label" for="intervalSec">Інтервал, сек</label>
+              <input id="intervalSec" class="input" inputmode="numeric" placeholder="15" />
+            </div>
+            <div class="field">
+              <label class="label" for="autoplay">Автоплей</label>
+              <select id="autoplay" class="input">
+                <option value="on" selected>Увімкнено</option>
+                <option value="off">Вимкнено</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <button id="btnLoad" class="btn btn--wide" type="button">Завантажити тести</button>
+            <button id="btnFullscreen" class="btn btn--wide" type="button">На весь екран</button>
+          </div>
+
+          <div class="hint">
+            Порада: можна передати параметри в URL: <span class="mono">?key=…&interval=15&autoplay=1</span>
+          </div>
+
+          <div class="status" id="status"></div>
+        </div>
+
+        <div class="panel__right">
+          <article class="card" id="card">
+            <div class="card__meta">
+              <div class="pill" id="pillIndex">—</div>
+              <div class="pill pill--ghost" id="pillQuestions">—</div>
+            </div>
+
+            <h1 class="card__title" id="testTitle">Підключіть API key і натисніть “Завантажити тести”.</h1>
+            <div class="card__body" id="testBody"></div>
+
+            <footer class="card__footer">
+              <div class="progress">
+                <div class="progress__bar" id="progressBar"></div>
+              </div>
+              <div class="small" id="smallInfo"></div>
+            </footer>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="/display/app.js"></script>
+  </body>
+</html>
+

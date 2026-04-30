@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Тест</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/telegram-app/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="screen-loading" class="screen">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="loading-text">Завантаження…</p>
+      </div>
+
+      <div id="screen-error" class="screen hidden">
+        <p id="error-text" class="error"></p>
+        <button type="button" class="btn primary" id="btn-close-error">Закрити</button>
+      </div>
+
+      <div id="screen-quiz" class="screen hidden">
+        <header class="quiz-head">
+          <div class="progress-track">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <div class="meta" id="quiz-meta"></div>
+        </header>
+
+        <article class="card">
+          <div id="q-image-wrap" class="q-image-wrap hidden">
+            <img id="q-image" alt="" />
+          </div>
+          <h1 id="q-text" class="q-text"></h1>
+          <div id="q-body" class="q-body"></div>
+        </article>
+
+        <footer class="quiz-foot">
+          <button type="button" class="btn primary hidden" id="btn-submit">Надіслати відповідь</button>
+        </footer>
+      </div>
+
+      <div id="screen-done" class="screen hidden">
+        <div class="done-card">
+          <h2 class="done-title">Готово</h2>
+          <pre id="done-message" class="done-message"></pre>
+          <button type="button" class="btn primary" id="btn-close-app">Закрити</button>
+        </div>
+      </div>
+    </div>
+    <script src="/telegram-app/app.js"></script>
+  </body>
+</html>

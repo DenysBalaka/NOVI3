@@ -1,13 +1,21 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const v1 = require("./src/routes/v1");
+const telegramWebApp = require("./src/routes/telegramWebApp");
 const { createBot } = require("./src/bot/handlers");
 
 const app = express();
 app.use(cors({ origin: true }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Статичний web UI (екран/вікно для показу тестів)
+app.use(express.static(path.join(__dirname, "public")));
+app.get("/display", (_req, res) => res.sendFile(path.join(__dirname, "public", "display", "index.html")));
+app.get("/telegram-app", (_req, res) => res.sendFile(path.join(__dirname, "public", "telegram-app", "index.html")));
+
+app.use("/api/v1/telegram-webapp", telegramWebApp);
 app.use("/api/v1", v1);
 
 const port = Number(process.env.PORT || 3000);
