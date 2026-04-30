@@ -19,7 +19,8 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
   pairs.sort(([a], [b]) => a.localeCompare(b));
   const dataCheckString = pairs.map(([k, v]) => `${k}=${v}`).join("\n");
 
-  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
+  // secret_key = HMAC_SHA256(<bot_token>, "WebAppData")
+  const secretKey = crypto.createHmac("sha256", botToken).update("WebAppData").digest();
   const calculated = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
   const ah = Buffer.from(calculated, "hex");
   const bh = Buffer.from(hash, "hex");
