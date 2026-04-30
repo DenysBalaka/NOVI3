@@ -110,6 +110,7 @@ function verifyClient(initData) {
   if (!botToken) return { ok: false, status: 503, error: "TELEGRAM_BOT_TOKEN не налаштовано" };
   const v = verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec: 86400 });
   if (!v.ok) {
+    console.warn("[telegram-webapp] initData rejected:", v.reason);
     return { ok: false, status: 401, error: "Невірні дані Telegram" };
   }
   const ids = getTelegramIdsFromVerified(v);

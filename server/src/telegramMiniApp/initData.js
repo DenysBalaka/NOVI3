@@ -19,14 +19,21 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
   pairs.sort(([a], [b]) => a.localeCompare(b));
   const dataCheckString = pairs.map(([k, v]) => `${k}=${v}`).join("\n");
 
-  // secret_key = HMAC_SHA256(<bot_token>, "WebAppData")
-  const secretKey = crypto.createHmac("sha256", botToken).update("WebAppData").digest();
-  const calculated = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
-  const ah = Buffer.from(calculated, "hex");
+  // Telegram docs/практика: secret_key = HMAC_SHA256(key="WebAppData", msg=bot_token)
+  // Деякі приклади трактують порядок навпаки, тож перевіряємо обидва варіанти для сумісності.
+  const secretKeyA = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
+  const calculatedA = crypto.createHmac("sha256", secretKeyA).update(dataCheckString).digest("hex");
+
+  const secretKeyB = crypto.createHmac("sha256", botToken).update("WebAppData").digest();
+  const calculatedB = crypto.createHmac("sha256", secretKeyB).update(dataCheckString).digest("hex");
+
   const bh = Buffer.from(hash, "hex");
-  if (ah.length !== bh.length || !crypto.timingSafeEqual(ah, bh)) {
-    return { ok: false, reason: "bad_hash" };
-  }
+  const ahA = Buffer.from(calculatedA, "hex");
+  const ahB = Buffer.from(calculatedB, "hex");
+
+  const okA = ahA.length === bh.length && crypto.timingSafeEqual(ahA, bh);
+  const okB = ahB.length === bh.length && crypto.timingSafeEqual(ahB, bh);
+  if (!okA && !okB) return { ok: false, reason: "bad_hash" };
 
   const authDate = Number(params.get("auth_date") || "0");
   if (!authDate || Number.isNaN(authDate)) return { ok: false, reason: "no_auth_date" };
