@@ -10,6 +10,15 @@ const app = express();
 app.use(cors({ origin: true }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Діагностика: якщо Mini App не доходить до бекенду — побачимо хоча б завантаження сторінки/ресурсів
+app.use((req, _res, next) => {
+  const p = req.path || "";
+  if (p === "/telegram-app" || p.startsWith("/telegram-app/") || p.startsWith("/api/v1/telegram-webapp")) {
+    console.log("[miniapp]", req.method, p);
+  }
+  next();
+});
+
 // Статичний web UI (екран/вікно для показу тестів)
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/display", (_req, res) => res.sendFile(path.join(__dirname, "public", "display", "index.html")));
