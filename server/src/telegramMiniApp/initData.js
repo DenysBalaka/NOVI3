@@ -1,40 +1,96 @@
 const crypto = require("crypto");
 
+function decodeFormComponent(raw) {
+  if (raw == null) return "";
+  try {
+    return decodeURIComponent(String(raw).replace(/\+/g, " "));
+  } catch {
+    return String(raw);
+  }
+}
+
+/** Розбір query-string без зміни значень (лише розділення по &) */
+function parseRawQueryPairs(initData) {
+  const map = {};
+  const s = String(initData || "").trim();
+  if (!s) return map;
+  for (const segment of s.split("&")) {
+    if (!segment) continue;
+    const eq = segment.indexOf("=");
+    if (eq < 0) continue;
+    const key = segment.slice(0, eq);
+    const rawVal = segment.slice(eq + 1);
+    map[key] = rawVal;
+  }
+  return map;
+}
+
+function buildCheckStringDecodedFromRawMap(rawMap) {
+  const keys = Object.keys(rawMap)
+    .filter((k) => k !== "hash" && k !== "signature")
+    .sort((a, b) => a.localeCompare(b));
+  return keys.map((k) => `${k}=${decodeFormComponent(rawMap[k])}`).join("\n");
+}
+
+function buildCheckStringRawFromRawMap(rawMap) {
+  const keys = Object.keys(rawMap)
+    .filter((k) => k !== "hash" && k !== "signature")
+    .sort((a, b) => a.localeCompare(b));
+  return keys.map((k) => `${k}=${rawMap[k]}`).join("\n");
+}
+
+function buildCheckStringFromURLSearchParams(initData) {
+  const params = new URLSearchParams(initData);
+  params.delete("hash");
+  params.delete("signature");
+  const keys = [...new Set([...params.keys()])].sort((a, b) => a.localeCompare(b));
+  return keys.map((k) => `${k}=${params.get(k)}`).join("\n");
+}
+
 /**
- * Перевірка initData з Telegram.WebApp (див. core.telegram.org / bots / webapps).
+ * Перевірка initData з Telegram.WebApp (core.telegram.org / bots / webapps).
+ * Через відмінності кодування query-string пробуємо кілька канонічних варіантів data-check-string.
  */
 function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } = {}) {
-  if (!initData || typeof initData !== "string" || !botToken) {
+  const token = String(botToken || "").trim();
+  if (!initData || typeof initData !== "string" || !token) {
     return { ok: false, reason: "missing" };
   }
-  const params = new URLSearchParams(initData);
-  const hash = params.get("hash");
+
+  const rawMap = parseRawQueryPairs(initData);
+  const hash = rawMap.hash ? decodeFormComponent(rawMap.hash) : null;
   if (!hash) return { ok: false, reason: "no_hash" };
 
-  const pairs = [];
-  for (const [k, v] of params.entries()) {
-    if (k === "hash" || k === "signature") continue;
-    pairs.push([k, v]);
-  }
-  pairs.sort(([a], [b]) => a.localeCompare(b));
-  const dataCheckString = pairs.map(([k, v]) => `${k}=${v}`).join("\n");
-
-  // Telegram docs/практика: secret_key = HMAC_SHA256(key="WebAppData", msg=bot_token)
-  // Деякі приклади трактують порядок навпаки, тож перевіряємо обидва варіанти для сумісності.
-  const secretKeyA = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
-  const calculatedA = crypto.createHmac("sha256", secretKeyA).update(dataCheckString).digest("hex");
-
-  const secretKeyB = crypto.createHmac("sha256", botToken).update("WebAppData").digest();
-  const calculatedB = crypto.createHmac("sha256", secretKeyB).update(dataCheckString).digest("hex");
-
   const bh = Buffer.from(hash, "hex");
-  const ahA = Buffer.from(calculatedA, "hex");
-  const ahB = Buffer.from(calculatedB, "hex");
+  if (bh.length !== 32) return { ok: false, reason: "bad_hash_format" };
 
-  const okA = ahA.length === bh.length && crypto.timingSafeEqual(ahA, bh);
-  const okB = ahB.length === bh.length && crypto.timingSafeEqual(ahB, bh);
-  if (!okA && !okB) return { ok: false, reason: "bad_hash" };
+  const checkVariants = [
+    buildCheckStringDecodedFromRawMap(rawMap),
+    buildCheckStringRawFromRawMap(rawMap),
+    buildCheckStringFromURLSearchParams(initData),
+  ];
 
+  // Документація (псевдокод): secret_key = HMAC_SHA256(<bot_token>, "WebAppData")
+  const secretOfficial = crypto.createHmac("sha256", token).update("WebAppData").digest();
+  // Поширена інтерпретація тексту доки: key="WebAppData", msg=bot_token
+  const secretAlt = crypto.createHmac("sha256", "WebAppData").update(token).digest();
+
+  let matched = false;
+  for (const secretKey of [secretOfficial, secretAlt]) {
+    for (const dataCheckString of checkVariants) {
+      const calculated = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+      const ah = Buffer.from(calculated, "hex");
+      if (ah.length === bh.length && crypto.timingSafeEqual(ah, bh)) {
+        matched = true;
+        break;
+      }
+    }
+    if (matched) break;
+  }
+
+  if (!matched) return { ok: false, reason: "bad_hash" };
+
+  const params = new URLSearchParams(initData);
   const authDate = Number(params.get("auth_date") || "0");
   if (!authDate || Number.isNaN(authDate)) return { ok: false, reason: "no_auth_date" };
   if (Math.floor(Date.now() / 1000) - authDate > maxAgeSec) return { ok: false, reason: "stale" };
