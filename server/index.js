@@ -7,14 +7,39 @@ const telegramWebApp = require("./src/routes/telegramWebApp");
 const { createBot } = require("./src/bot/handlers");
 
 const app = express();
+
+function getPublicBaseUrl() {
+  const raw = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || "";
+  return raw ? raw.replace(/\/$/, "") : "";
+}
+
 app.use(cors({ origin: true }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Однозначна перевірка, що саме цей код запущено на Render (шукайте в Logs цей рядок після деплою)
+console.error(
+  "[BOOT] teacherjournal-miniapp",
+  new Date().toISOString(),
+  "cwd=",
+  process.cwd(),
+  "diag=/__diag"
+);
+
+/** Простий ping без префіксу — щоб перевірити логи Render звичайним браузером */
+app.get("/__diag", (req, res) => {
+  console.error("[__diag]", new Date().toISOString(), req.get("user-agent") || "");
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    telegramAppUrl: `${getPublicBaseUrl()}/telegram-app`,
+  });
+});
 
 // Діагностика: якщо Mini App не доходить до бекенду — побачимо хоча б завантаження сторінки/ресурсів
 app.use((req, _res, next) => {
   const p = req.path || "";
   if (p === "/telegram-app" || p.startsWith("/telegram-app/") || p.startsWith("/api/v1/telegram-webapp")) {
-    console.log("[miniapp]", req.method, p);
+    console.error("[miniapp]", req.method, req.originalUrl || p);
   }
   next();
 });
@@ -22,17 +47,16 @@ app.use((req, _res, next) => {
 // Статичний web UI (екран/вікно для показу тестів)
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/display", (_req, res) => res.sendFile(path.join(__dirname, "public", "display", "index.html")));
-app.get("/telegram-app", (_req, res) => res.sendFile(path.join(__dirname, "public", "telegram-app", "index.html")));
+app.get("/telegram-app", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  console.error("[miniapp-html]", new Date().toISOString(), req.get("user-agent") || "");
+  res.sendFile(path.join(__dirname, "public", "telegram-app", "index.html"));
+});
 
 app.use("/api/v1/telegram-webapp", telegramWebApp);
 app.use("/api/v1", v1);
 
 const port = Number(process.env.PORT || 3000);
-
-function getPublicBaseUrl() {
-  const raw = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || "";
-  return raw ? raw.replace(/\/$/, "") : "";
-}
 
 function startKeepAlive() {
   const base = getPublicBaseUrl();
