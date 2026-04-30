@@ -9,6 +9,14 @@ const { createSessionFromAccessRow, buildQuestionView, advanceWithAnswer } = req
 const router = express.Router();
 router.use(express.json({ limit: "25mb" }));
 
+// Діагностика: щоб бачити, чи Mini App взагалі стукає в бекенд
+router.use((req, _res, next) => {
+  console.log("[telegram-webapp]", req.method, req.path);
+  next();
+});
+
+router.get("/ping", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
 function safePointsNumber(n) {
   const x = typeof n === "number" ? n : Number(n);
   return Number.isFinite(x) ? x : 0;

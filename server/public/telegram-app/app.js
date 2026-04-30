@@ -50,6 +50,14 @@
     return data;
   }
 
+  async function pingBackend() {
+    try {
+      await fetch("/api/v1/telegram-webapp/ping", { method: "GET" });
+    } catch {
+      // ignore
+    }
+  }
+
   function getNavToken() {
     const u = new URL(window.location.href);
     const t = u.searchParams.get("t");
@@ -217,6 +225,7 @@
   }
 
   async function start() {
+    void pingBackend();
     const token = getNavToken();
     if (!token) {
       errorText.textContent = "Немає посилання на тест (?t=…).";
