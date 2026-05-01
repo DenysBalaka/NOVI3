@@ -27,10 +27,6 @@
     topbarTitle: $("topbar-title"),
     topbarSub: $("topbar-sub"),
     topbarMeta: $("topbar-meta"),
-    windowControls: $("window-controls"),
-    btnWinExpand: $("btn-win-expand"),
-    btnWinShrink: $("btn-win-shrink"),
-    btnWinAbandon: $("btn-win-abandon"),
   };
 
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -43,8 +39,6 @@
   let selectedRadio = null;
   /** @type {(() => void)|null} */
   let lastStartFn = null;
-  /** @type {'loading'|'error'|'quiz'|'done'} */
-  let currentScreen = "loading";
   /** Тест успішно завершено — не скасовувати сесію при закритті. */
   let testCompleted = false;
   /** Щоб не дублювати abandon. */
@@ -57,23 +51,17 @@
     matching: "Відповідність",
   };
 
-  const ABANDON_MSG =
-    "Закрити тест? Незавершену спробу буде скасовано — результат у журнал не потрапить.";
-
   function show(name) {
-    currentScreen = name;
     Object.values(screens).forEach((s) => s.classList.add("hidden"));
     screens[name].classList.remove("hidden");
     if (name !== "quiz") {
       hideMainButton();
     }
-    updateWindowToolbar();
   }
 
   function markTestFinished() {
     testCompleted = true;
     sessionId = null;
-    updateWindowToolbar();
   }
 
   /** Розгорнути вікно Mini App у межах Telegram (без примусового повноекрана). */
@@ -117,104 +105,22 @@
     }
   }
 
-  async function abandonSync() {
-    const body = buildAbandonPayload();
-    if (!body) return;
-    const url = new URL("/api/v1/telegram-webapp/abandon", window.location.origin).href;
-    try {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      });
-      void r.json().catch(() => {});
-    } catch {
-      // ignore
-    }
-    abandonSent = true;
+  /** Офіційні десктоп-клієнти Telegram Mini App (не мобільні застосунки). */
+  function isTelegramDesktopApp() {
+    if (!tg || !tg.platform) return false;
+    const p = String(tg.platform).toLowerCase();
+    return p === "tdesktop" || p === "macos";
   }
 
-  function confirmAbandonAndClose() {
-    const run = () => {
-      void abandonSync().finally(() => {
-        testCompleted = true;
-        sessionId = null;
-        if (tg && tg.close) tg.close();
-      });
-    };
-
-    if (tg && typeof tg.showConfirm === "function") {
-      try {
-        tg.showConfirm(ABANDON_MSG, (ok) => {
-          if (ok) run();
-        });
-        return;
-      } catch {
-        // fall through
-      }
-    }
-    if (window.confirm(ABANDON_MSG)) run();
-  }
-
-  function updateWindowToolbar() {
-    const wc = els.windowControls;
-    if (!wc) return;
-    const midTest =
-      sessionId != null &&
-      !testCompleted &&
-      (currentScreen === "quiz" || currentScreen === "loading" || currentScreen === "error");
-    wc.classList.toggle("hidden", !midTest || !tg);
-    if (midTest && tg) {
-      syncWinButtonsState();
-    }
-  }
-
-  function syncWinButtonsState() {
-    const ex = els.btnWinExpand;
-    const sh = els.btnWinShrink;
-    if (!ex || !sh) return;
-    const hasFsIn = typeof tg?.requestFullscreen === "function";
-    const hasFsOut = typeof tg?.exitFullscreen === "function";
-    const fs = tg && tg.isFullscreen === true;
-    ex.classList.toggle("hidden", !hasFsIn || fs);
-    sh.classList.toggle("hidden", !(hasFsOut && fs));
-    if (!hasFsIn && !hasFsOut) {
-      ex.classList.remove("hidden");
-      sh.classList.add("hidden");
-      ex.title = "Розгорнути вікно в Telegram";
-      return;
-    }
-    ex.title = "Більше місця (повний екран Web App, якщо підтримується)";
-    sh.title = "Вийти з повного екрана";
-  }
-
-  function winExpand() {
-    if (!tg) return;
+  /** Одразу розгорнути та увімкнути повноекранний Web App на Desktop (якщо підтримує клієнт). */
+  function applyDesktopFullscreen() {
+    if (!isTelegramDesktopApp()) return;
     expandWebApp();
     try {
-      if (typeof tg.requestFullscreen === "function") {
-        tg.requestFullscreen();
-      }
+      if (typeof tg.requestFullscreen === "function") tg.requestFullscreen();
     } catch {
       // ignore
     }
-    setTimeout(syncWinButtonsState, 400);
-  }
-
-  function winShrink() {
-    if (!tg) return;
-    if (tg.isFullscreen === true && typeof tg.exitFullscreen === "function") {
-      try {
-        tg.exitFullscreen();
-      } catch {
-        // ignore
-      }
-      setTimeout(syncWinButtonsState, 400);
-      return;
-    }
-    alertUser(
-      "Стисніть вікно, потягнувши за край у Telegram Desktop, або вийдіть з повного екрана кнопкою «Компактніший вигляд», якщо вона активна."
-    );
   }
 
   function syncMainButtonStyle() {
@@ -683,10 +589,6 @@
     if (lastStartFn) void lastStartFn();
   });
 
-  if (els.btnWinExpand) els.btnWinExpand.addEventListener("click", () => winExpand());
-  if (els.btnWinShrink) els.btnWinShrink.addEventListener("click", () => winShrink());
-  if (els.btnWinAbandon) els.btnWinAbandon.addEventListener("click", () => confirmAbandonAndClose());
-
   window.addEventListener("pagehide", () => {
     if (!testCompleted && sessionId && tg && tg.initData) {
       abandonBeacon();
@@ -697,17 +599,13 @@
     try {
       tg.ready();
       expandWebApp();
+      applyDesktopFullscreen();
     } catch {
       // ignore
     }
     applyTheme();
     if (tg.onEvent) {
       tg.onEvent("themeChanged", applyTheme);
-      try {
-        tg.onEvent("fullscreenChanged", syncWinButtonsState);
-      } catch {
-        // ignore
-      }
     }
   }
 
