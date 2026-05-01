@@ -24,9 +24,9 @@ function replyMainMenu() {
   return kb;
 }
 
-/** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). Текст — невидимий символ. */
+/** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). */
 async function sendMenuButtonKeyboard(ctx) {
-  await ctx.reply("\u2060", replyMainMenu());
+  await ctx.reply(TEST_PICKER_TOOLTIP_TEXT, replyMainMenu());
 }
 
 function readJSON(p) {
@@ -371,7 +371,7 @@ async function showTestPicker(ctx, paths) {
 
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   await ctx.reply(
-    "Оберіть тест:\n\n" + `${TEST_PICKER_TOOLTIP_TEXT}.`,
+    "Оберіть тест:",
     Markup.inlineKeyboard(rows)
   );
   await sendMenuButtonKeyboard(ctx);

@@ -33,9 +33,9 @@ function replyMainMenu() {
   return kb;
 }
 
-/** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). Текст — невидимий символ. */
+/** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). */
 async function sendMenuButtonKeyboard(ctx) {
-  await ctx.reply("\u2060", replyMainMenu());
+  await ctx.reply(TEST_PICKER_TOOLTIP_TEXT, replyMainMenu());
 }
 
 function getSession(chatId) {
@@ -647,9 +647,7 @@ async function showTestPicker(ctx) {
   let rows;
   let intro;
   if (publicBase && botToken) {
-    intro =
-      "Оберіть тест — відкриється вікно Telegram (Mini App):\n\n" +
-      `${TEST_PICKER_TOOLTIP_TEXT}.`;
+    intro = "Оберіть тест — відкриється вікно Telegram (Mini App):";
     rows = list.map((t) => {
       const nav = signOpenTestNavToken(botToken, t.id);
       const url = `${publicBase}/telegram-app?t=${encodeURIComponent(nav)}`;
