@@ -90,6 +90,21 @@ function radioKeyboard(qi, options) {
   return Markup.inlineKeyboard(rows);
 }
 
+function checkKeyboard(qi, options, selectedSet) {
+  const picked = selectedSet instanceof Set ? selectedSet : new Set(Array.isArray(selectedSet) ? selectedSet : []);
+  const rows = [];
+  (options || []).forEach((opt, oi) => {
+    const raw = opt && opt.text != null ? String(opt.text) : `Варіант ${oi + 1}`;
+    const base = truncate(raw.replace(/\s+/g, " ").trim(), 56) || "—";
+    const label = (picked.has(oi) ? "✅ " : "") + base;
+    const row = Math.floor(oi / 2);
+    if (!rows[row]) rows[row] = [];
+    rows[row].push(Markup.button.callback(label, `c:${qi}:${oi}`));
+  });
+  rows.push([Markup.button.callback("Готово", `cd:${qi}`)]);
+  return Markup.inlineKeyboard(rows);
+}
+
 function matchingKeyboard(qi, pi, rightsShuffled) {
   const rows = [];
   rightsShuffled.forEach((_, idx) => {
@@ -138,11 +153,24 @@ async function presentQuestion(ctx, paths, session) {
       session.qi++;
       return presentQuestion(ctx, paths, session);
     }
-    const optLines = opts
-      .map((opt, i) => `${i + 1}) ${escHtml((opt && opt.text) || "—")}`)
-      .join("\n");
-    const instruct =
-      `Варіанти:\n${optLines}\n\nВкажіть номери обраних варіантів через кому (наприклад: <code>1,3</code>). Нумерація з 1.`;
+    // Для коротких списків — інлайн мультивибір. Для довгих — fallback на введення "1,3".
+    if (opts.length <= 20) {
+      session.step = "wait_check_inline";
+      session.pendingQi = qi;
+      session.checkSelected = session.checkSelected || {};
+      if (!session.checkSelected[qi]) session.checkSelected[qi] = [];
+      const kb = checkKeyboard(qi, opts, session.checkSelected[qi]);
+      if (q.image) {
+        await sendQuestionPhoto(ctx, header, q.image);
+        await ctx.reply("Оберіть варіанти (можна кілька) і натисніть «Готово».", kb);
+      } else {
+        await ctx.reply(`${header}\n\nОберіть варіанти (можна кілька) і натисніть «Готово».`, { parse_mode: "HTML", ...kb });
+      }
+      return;
+    }
+
+    const optLines = opts.map((opt, i) => `${i + 1}) ${escHtml((opt && opt.text) || "—")}`).join("\n");
+    const instruct = `Варіанти:\n${optLines}\n\nВкажіть номери обраних варіантів через кому (наприклад: <code>1,3</code>). Нумерація з 1.`;
     if (q.image) {
       await sendQuestionPhoto(ctx, header, q.image);
       await ctx.reply(instruct, { parse_mode: "HTML" });
@@ -367,6 +395,49 @@ function makeBot(paths, getWindow) {
 
       s.answers[qi] = oi;
       s.qi = qi + 1;
+      await presentQuestion(ctx, paths, s);
+      return;
+    }
+
+    if (data.startsWith("c:")) {
+      const parts = data.split(":");
+      const qi = parseInt(parts[1], 10);
+      const oi = parseInt(parts[2], 10);
+      const s = getSession(chatId);
+      await ctx.answerCbQuery();
+      if (s.step !== "wait_check_inline" || !s.test || qi !== s.pendingQi) return;
+      const opts = s.test.questions[qi]?.options || [];
+      if (oi < 0 || oi >= opts.length) return;
+
+      if (!s.checkSelected) s.checkSelected = {};
+      const cur = new Set(Array.isArray(s.checkSelected[qi]) ? s.checkSelected[qi] : []);
+      if (cur.has(oi)) cur.delete(oi);
+      else cur.add(oi);
+      s.checkSelected[qi] = [...cur].sort((a, b) => a - b);
+
+      // Оновлюємо клавіатуру на тому ж повідомленні (якщо можливо)
+      try {
+        const kb = checkKeyboard(qi, opts, s.checkSelected[qi]);
+        await ctx.editMessageReplyMarkup(kb.reply_markup);
+      } catch (_) {
+        // Якщо не можна відредагувати (старе повідомлення / немає прав) — просто ігноруємо.
+      }
+      return;
+    }
+
+    if (data.startsWith("cd:")) {
+      const parts = data.split(":");
+      const qi = parseInt(parts[1], 10);
+      const s = getSession(chatId);
+      await ctx.answerCbQuery();
+      if (s.step !== "wait_check_inline" || !s.test || qi !== s.pendingQi) return;
+
+      const picked = Array.isArray(s.checkSelected?.[qi]) ? s.checkSelected[qi] : [];
+      s.answers[qi] = [...new Set(picked)].filter((n) => Number.isInteger(n));
+      s.qi = qi + 1;
+      s.step = "question";
+      delete s.pendingQi;
+      if (s.checkSelected) delete s.checkSelected[qi];
       await presentQuestion(ctx, paths, s);
       return;
     }

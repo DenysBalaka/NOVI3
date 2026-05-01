@@ -178,6 +178,21 @@ function migrateLegacyMatchingQuestion(q) {
   return next;
 }
 
+function safePairs(q) {
+  const pairs = Array.isArray(q?.pairs) ? q.pairs : [];
+  return pairs
+    .map((p) => ({
+      left: p && p.left != null ? String(p.left) : "",
+      right: p && p.right != null ? String(p.right) : "",
+    }))
+    .filter((p) => p.left.trim() || p.right.trim());
+}
+
+function shuffleArrayUnique(arr) {
+  const uniq = [...new Set((arr || []).map((x) => String(x ?? "").trim()).filter(Boolean))];
+  return shuffleArray(uniq);
+}
+
 async function postAssignmentWithAutoPushTest(body, testExternalId) {
   try {
     await window.callCloudApi("POST", "assignments", body);
@@ -1128,6 +1143,15 @@ function openTestStudentPreview(test) {
       });
     } else if (q.type === "text") {
       blocks += `<p style="margin:0;font-size:13px;color:var(--muted);">У боті учень надсилає відповідь текстом.</p>`;
+    } else if (q.type === "matching") {
+      const pairs = safePairs(q);
+      if (pairs.length === 0) {
+        blocks += `<p style="margin:0;font-size:13px;color:var(--muted);">Немає пар для порівняння.</p>`;
+      } else {
+        pairs.forEach((p) => {
+          blocks += `<div style="padding:6px 10px;margin:4px 0;border-radius:6px;background:var(--bg-panel);font-size:14px;">${window.esc(p.left)} → ${window.esc(p.right)}</div>`;
+        });
+      }
     }
     blocks += `</div>`;
   });
@@ -1366,6 +1390,7 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       { val: 'radio', label: 'Одна відповідь' },
       { val: 'check', label: 'Декілька відповідей' },
       { val: 'text', label: 'Текстова відповідь' },
+      { val: 'matching', label: 'Порівняння (відповідність)' },
     ];
 
     types.forEach(t => {
@@ -1380,6 +1405,7 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
     ` : '';
 
     const showOptions = q.type === 'radio' || q.type === 'check';
+    const showPairs = q.type === 'matching';
 
     qBlock.innerHTML = `
       <div class="question-header">
@@ -1407,6 +1433,11 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       <div class="options-list" style="display: ${showOptions ? 'block' : 'none'};"></div>
       <button class="btn ghost" data-action="add-option" style="margin-left: 28px; margin-top: 8px; display: ${showOptions ? 'block' : 'none'};">
         + Додати варіант
+      </button>
+
+      <div class="matching-list" style="display:${showPairs ? 'block' : 'none'}; margin-top: 10px; padding-left: 28px;"></div>
+      <button class="btn ghost" data-action="add-pair" style="margin-left: 28px; margin-top: 8px; display:${showPairs ? 'block' : 'none'};">
+        + Додати пару
       </button>
     `;
 
@@ -1445,6 +1476,42 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       });
     }
 
+    // Render matching pairs
+    const pairsList = window.$(".matching-list", qBlock);
+    if (showPairs) {
+      if (!Array.isArray(testDraft.questions[qi].pairs)) testDraft.questions[qi].pairs = [];
+      const pairs = testDraft.questions[qi].pairs;
+      if (pairs.length === 0) pairs.push({ left: "", right: "" });
+
+      pairsList.innerHTML = `
+        <div style="display:flex;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:6px;">
+          <div style="flex:1;">Ліва частина</div>
+          <div style="flex:1;">Права частина</div>
+          <div style="width:40px;"></div>
+        </div>
+      `;
+
+      pairs.forEach((pair, pi) => {
+        const row = document.createElement("div");
+        row.style.display = "flex";
+        row.style.gap = "8px";
+        row.style.alignItems = "center";
+        row.style.marginBottom = "6px";
+        row.innerHTML = `
+          <input type="text" class="input match-left" placeholder="Напр.: 3×4" value="${window.esc(pair?.left || "")}" style="flex:1;">
+          <input type="text" class="input match-right" placeholder="Напр.: 12" value="${window.esc(pair?.right || "")}" style="flex:1;">
+          <button class="btn danger ghost" data-action="delete-pair" data-pi="${pi}" style="min-width: 32px; padding: 4px 8px;">✕</button>
+        `;
+        window.$(".match-left", row).oninput = (e) => {
+          testDraft.questions[qi].pairs[pi].left = e.target.value;
+        };
+        window.$(".match-right", row).oninput = (e) => {
+          testDraft.questions[qi].pairs[pi].right = e.target.value;
+        };
+        pairsList.appendChild(row);
+      });
+    }
+
     // Question-level event handlers
     window.$(".q-type-select", qBlock).onchange = (e) => {
       const newType = e.target.value;
@@ -1453,6 +1520,11 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
         testDraft.questions[qi].options.forEach((o, i) => o.correct = (i === 0));
       } else if (newType === 'check') {
         (testDraft.questions[qi].options || []).forEach(o => o.correct = false);
+      } else if (newType === 'matching') {
+        delete testDraft.questions[qi].options;
+        if (!Array.isArray(testDraft.questions[qi].pairs)) testDraft.questions[qi].pairs = [{ left: "", right: "" }];
+      } else if (newType === 'text') {
+        // зберігаємо pairs/options як є, але UI їх не показує
       }
       renderTestCreatorQuestions(testDraft, questionsBox);
     };
@@ -1489,11 +1561,28 @@ function renderTestCreatorQuestions(testDraft, questionsBox) {
       };
     }
 
+    const addPairBtn = window.$('[data-action="add-pair"]', qBlock);
+    if (addPairBtn) {
+      addPairBtn.onclick = () => {
+        if (!Array.isArray(testDraft.questions[qi].pairs)) testDraft.questions[qi].pairs = [];
+        testDraft.questions[qi].pairs.push({ left: "", right: "" });
+        renderTestCreatorQuestions(testDraft, questionsBox);
+      };
+    }
+
     qBlock.onclick = (e) => {
       if (e.target.dataset.action === 'delete-opt') {
         const optIndex = parseInt(e.target.dataset.optIndex, 10);
         testDraft.questions[qi].options.splice(optIndex, 1);
         renderTestCreatorQuestions(testDraft, questionsBox);
+      }
+      if (e.target.dataset.action === 'delete-pair') {
+        const pi = parseInt(e.target.dataset.pi, 10);
+        if (Array.isArray(testDraft.questions[qi].pairs)) {
+          testDraft.questions[qi].pairs.splice(pi, 1);
+          if (testDraft.questions[qi].pairs.length === 0) testDraft.questions[qi].pairs.push({ left: "", right: "" });
+          renderTestCreatorQuestions(testDraft, questionsBox);
+        }
       }
     };
 
@@ -1573,6 +1662,26 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         });
       } else if (q.type === 'text') {
         questionsHTML += `<textarea class="input" data-q-index="${qi}" placeholder="Введіть вашу відповідь..." style="min-height: 100px;"></textarea>`;
+      } else if (q.type === 'matching') {
+        const pairs = safePairs(q);
+        const rights = shuffleArrayUnique(pairs.map((p) => p.right));
+        if (pairs.length === 0) {
+          questionsHTML += `<div style="color:var(--muted);font-size:13px;">Немає пар для порівняння.</div>`;
+        } else {
+          pairs.forEach((p, pi) => {
+            const opts = ['<option value="">— оберіть —</option>']
+              .concat(rights.map((r) => `<option value="${window.esc(r)}">${window.esc(r)}</option>`))
+              .join("");
+            questionsHTML += `
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <div style="min-width:180px;font-weight:600;">${window.esc(p.left)}</div>
+                <select class="input" data-match-q="${qi}" data-match-p="${pi}" style="min-width:240px;flex:1;">
+                  ${opts}
+                </select>
+              </div>
+            `;
+          });
+        }
       }
       questionsHTML += `</div></div>`;
     });
@@ -1641,6 +1750,15 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         } else if (q.type === 'text') {
           const ta = window.$(`textarea[data-q-index="${qi}"]`, questionsArea);
           hasAnswer = ta && ta.value.trim().length > 0;
+        } else if (q.type === 'matching') {
+          const pairs = safePairs(q);
+          const selects = window.$$(`select[data-match-q="${qi}"]`, questionsArea);
+          if (pairs.length === 0) hasAnswer = true;
+          else {
+            hasAnswer =
+              selects.length === pairs.length &&
+              [...selects].every((sel) => String(sel.value || "").trim().length > 0);
+          }
         }
 
         if (hasAnswer) {
@@ -1800,6 +1918,14 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         } else if (q.type === 'text') {
           const textarea = window.$(`textarea[data-q-index="${qi}"]`, questionsArea);
           answers[qi] = textarea ? textarea.value : "";
+        } else if (q.type === 'matching') {
+          const pairs = safePairs(q);
+          const arr = [];
+          for (let pi = 0; pi < pairs.length; pi++) {
+            const sel = window.$(`select[data-match-q="${qi}"][data-match-p="${pi}"]`, questionsArea);
+            arr.push(sel ? String(sel.value || "") : "");
+          }
+          answers[qi] = arr;
         }
       });
 
