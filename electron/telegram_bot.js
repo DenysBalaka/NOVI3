@@ -330,7 +330,10 @@ async function showTestPicker(ctx, paths) {
   }
 
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
-  await ctx.reply("Оберіть тест:", Markup.inlineKeyboard(rows));
+  await ctx.reply(
+    "Оберіть тест:\n\n" + "📌 Цей тест буде зараховано лише за умови відповіді на всі питання.",
+    Markup.inlineKeyboard(rows)
+  );
   await sendMenuButtonKeyboard(ctx);
   const s = getSession(chatId);
   s.step = "pick";

@@ -641,7 +641,9 @@ async function showTestPicker(ctx) {
   let rows;
   let intro;
   if (publicBase && botToken) {
-    intro = "Оберіть тест — відкриється вікно Telegram (Mini App):";
+    intro =
+      "Оберіть тест — відкриється вікно Telegram (Mini App):\n\n" +
+      "📌 Цей тест буде зараховано лише за умови відповіді на всі питання.";
     rows = list.map((t) => {
       const nav = signOpenTestNavToken(botToken, t.id);
       const url = `${publicBase}/telegram-app?t=${encodeURIComponent(nav)}`;
