@@ -1,6 +1,7 @@
 const { Telegraf, Markup } = require("telegraf");
 const { buildRunTest, calcScore, dataUrlToBuffer, shuffleArray } = require("../testLogic");
 const { signOpenTestNavToken } = require("../telegramMiniApp/sign");
+const { normalizeBotToken } = require("../telegramMiniApp/initData");
 const Q = require("./queries");
 
 const MENU_BTN_CHOOSE_TEST = "📋 Обрати тест";
@@ -590,7 +591,7 @@ async function showTestPicker(ctx) {
   }
 
   const publicBase = getTelegramWebAppPublicBase();
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const botToken = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
   let rows;
   let intro;
   if (publicBase && botToken) {
@@ -692,7 +693,7 @@ async function processStartPayload(ctx, payload) {
 }
 
 function createBot() {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
   if (!token) {
     throw new Error("TELEGRAM_BOT_TOKEN не задано");
   }

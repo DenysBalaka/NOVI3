@@ -1,6 +1,19 @@
 const crypto = require("crypto");
 
-/** application/x-www-form-urlencoded → utf-8 (як це робить Telegram WebApp). */
+/** Прибираємо типові «Render/копіпаст» артефакти з TELEGRAM_BOT_TOKEN. */
+function normalizeBotToken(raw) {
+  let t = String(raw ?? "").trim();
+  t = t.replace(/^\uFEFF/, "");
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
+    t = t.slice(1, -1).trim();
+  }
+  return t.replace(/\r/g, "").replace(/\n/g, "");
+}
+
+/** application/x-www-form-urlencoded → utf-8 (як у Telegram WebApp). */
 function decodeFormComponent(raw) {
   if (raw == null) return "";
   try {
@@ -29,41 +42,126 @@ function parseRawQueryPairs(initData) {
   return map;
 }
 
-const EXCLUDE_FROM_HASH = new Set(["hash", "signature"]);
+/** Числовий bot_id з токена `123456789:AA...` (потрібен для Ed25519-гілки). */
+function parseBotIdFromToken(token) {
+  const part = String(token || "").split(":")[0];
+  const n = Number(part);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
 
-function sortedKeys(rawMap) {
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+const TELEGRAM_ED25519_PROD = Buffer.from(
+  "e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d",
+  "hex"
+);
+const TELEGRAM_ED25519_TEST = Buffer.from(
+  "40055058a4ee38156a06562e52eece92a771bcd8346a8c4615cb7376eddf72ec",
+  "hex"
+);
+
+function telegramEd25519PublicKey(testEnv) {
+  const raw = testEnv ? TELEGRAM_ED25519_TEST : TELEGRAM_ED25519_PROD;
+  return crypto.createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, raw]),
+    format: "der",
+    type: "spki",
+  });
+}
+
+function base64UrlToBuffer(s) {
+  let b = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b.length % 4;
+  if (pad) b += "=".repeat(4 - pad);
+  return Buffer.from(b, "base64");
+}
+
+/**
+ * Новий формат (Bot API з полем signature): Ed25519 за публічним ключем Telegram.
+ * @see https://core.telegram.org/bots/webapps#validating-data-for-third-party-use
+ */
+function verifyInitDataEd25519(initData, botId, { testEnv = false } = {}) {
+  const params = new URLSearchParams(initData);
+  const sigRaw = params.get("signature");
+  if (!sigRaw || !String(sigRaw).trim()) {
+    return { ok: false, reason: "no_signature" };
+  }
+
+  const pairs = [];
+  let authDateStr;
+  params.forEach((val, key) => {
+    if (key === "hash" || key === "signature") return;
+    if (key === "auth_date") authDateStr = val;
+    pairs.push(`${key}=${val}`);
+  });
+  pairs.sort();
+  const msg = Buffer.from(`${botId}:WebAppData\n${pairs.join("\n")}`, "utf8");
+
+  let sigBuf;
+  try {
+    sigBuf = base64UrlToBuffer(sigRaw.trim());
+  } catch {
+    return { ok: false, reason: "bad_signature_format" };
+  }
+  if (sigBuf.length !== 64) {
+    return { ok: false, reason: "bad_signature_format" };
+  }
+
+  const pub = telegramEd25519PublicKey(testEnv);
+  try {
+    const ok = crypto.verify(null, msg, pub, sigBuf);
+    if (!ok) return { ok: false, reason: "bad_signature" };
+  } catch {
+    return { ok: false, reason: "bad_signature" };
+  }
+
+  const authDate = Number(authDateStr || "0");
+  if (!Number.isFinite(authDate) || authDate <= 0) {
+    return { ok: false, reason: "no_auth_date" };
+  }
+
+  return { ok: true, authDate };
+}
+
+function sortedKeysForHmac(rawMap) {
   return Object.keys(rawMap)
-    .filter((k) => !EXCLUDE_FROM_HASH.has(k))
+    .filter((k) => k !== "hash")
     .sort();
 }
 
-function buildCheckStringDecoded(rawMap) {
-  return sortedKeys(rawMap)
+/** Як у @tma.js/init-data-node: пари key=value з сирого рядка, без decode value (як URLSearchParams.get). */
+function buildCheckStringTmaStyle(initData) {
+  const params = new URLSearchParams(initData);
+  const pairs = [];
+  params.forEach((val, key) => {
+    if (key === "hash") return;
+    pairs.push(`${key}=${val}`);
+  });
+  pairs.sort();
+  return pairs.join("\n");
+}
+
+function buildCheckStringDecodedFromRawMap(rawMap) {
+  return sortedKeysForHmac(rawMap)
     .map((k) => `${k}=${decodeFormComponent(rawMap[k])}`)
     .join("\n");
 }
 
-function buildCheckStringRaw(rawMap) {
-  return sortedKeys(rawMap)
+function buildCheckStringRawFromRawMap(rawMap) {
+  return sortedKeysForHmac(rawMap)
     .map((k) => `${k}=${rawMap[k]}`)
     .join("\n");
 }
 
-function buildCheckStringFromURLSearchParams(initData) {
-  const params = new URLSearchParams(initData);
-  for (const k of EXCLUDE_FROM_HASH) params.delete(k);
-  const keys = [...new Set([...params.keys()])].sort();
-  return keys.map((k) => `${k}=${params.get(k)}`).join("\n");
-}
-
 function describeInitData(rawMap) {
-  const fields = sortedKeys(rawMap);
-  const initLen = Object.entries(rawMap).reduce((n, [k, v]) => n + k.length + 1 + (v ? v.length : 0) + 1, 0);
+  const fields = sortedKeysForHmac(rawMap);
+  const initLen = Object.entries(rawMap).reduce(
+    (n, [k, v]) => n + k.length + 1 + (v ? v.length : 0) + 1,
+    0
+  );
   return {
     fieldCount: fields.length,
     fields,
     hasHash: !!rawMap.hash,
-    hasSignature: !!rawMap.signature,
     hasUser: !!rawMap.user,
     hasAuthDate: !!rawMap.auth_date,
     initLen,
@@ -71,13 +169,12 @@ function describeInitData(rawMap) {
 }
 
 /**
- * Перевірка initData з Telegram.WebApp за офіційним псевдокодом
- * (core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app).
- * Через історичні відмінності клієнтів пробуємо кілька канонічних варіантів data-check-string,
- * але вмикаємо лише варіанти, які відповідають документації.
+ * Перевірка initData з Telegram.WebApp.
+ * — Якщо є `signature` → Ed25519 (актуальні клієнти; поле `hash` при цьому ігнорується).
+ * — Інакше → класичний HMAC-SHA-256 за токеном бота.
  */
 function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } = {}) {
-  const token = String(botToken || "").trim();
+  const token = normalizeBotToken(botToken);
   if (!initData || typeof initData !== "string") {
     return { ok: false, reason: "missing_initdata" };
   }
@@ -86,7 +183,55 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
   }
 
   const rawMap = parseRawQueryPairs(initData);
-  const meta = describeInitData(rawMap);
+  const paramsAll = new URLSearchParams(initData);
+  const hasSignature = !!(paramsAll.get("signature") || "").trim();
+  const meta = { ...describeInitData(rawMap), hasSignature };
+
+  const testEnv =
+    process.env.TELEGRAM_MINIAPP_TEST_ENV === "true" ||
+    process.env.TELEGRAM_MINI_APP_TEST === "true";
+
+  if (hasSignature) {
+    const botId = parseBotIdFromToken(token);
+    if (!botId) {
+      return { ok: false, reason: "bad_bot_token_format", meta };
+    }
+    const ed = verifyInitDataEd25519(initData, botId, { testEnv });
+    if (!ed.ok) {
+      return { ok: false, reason: ed.reason, meta };
+    }
+    const ageSec = Math.floor(Date.now() / 1000) - ed.authDate;
+    if (ageSec > maxAgeSec) {
+      return { ok: false, reason: "stale", meta: { ...meta, ageSec, maxAgeSec } };
+    }
+    const params = new URLSearchParams(initData);
+    let user = null;
+    const userJson = params.get("user");
+    if (userJson) {
+      try {
+        user = JSON.parse(userJson);
+      } catch {
+        return { ok: false, reason: "bad_user", meta };
+      }
+    }
+    let chat = null;
+    const chatJson = params.get("chat");
+    if (chatJson) {
+      try {
+        chat = JSON.parse(chatJson);
+      } catch {
+        return { ok: false, reason: "bad_chat", meta };
+      }
+    }
+    return {
+      ok: true,
+      user,
+      chat,
+      params,
+      matched: { mode: "ed25519", botId, testEnv },
+      meta,
+    };
+  }
 
   const hashHex = rawMap.hash ? decodeFormComponent(rawMap.hash) : null;
   if (!hashHex) return { ok: false, reason: "no_hash", meta };
@@ -100,19 +245,16 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
   if (bh.length !== 32) return { ok: false, reason: "bad_hash_format", meta };
 
   const checkVariants = [
-    { label: "decoded", str: buildCheckStringDecoded(rawMap) },
-    { label: "raw", str: buildCheckStringRaw(rawMap) },
-    { label: "URLSearchParams", str: buildCheckStringFromURLSearchParams(initData) },
+    { label: "tma_urlsearchparams", str: buildCheckStringTmaStyle(initData) },
+    { label: "decoded", str: buildCheckStringDecodedFromRawMap(rawMap) },
+    { label: "raw", str: buildCheckStringRawFromRawMap(rawMap) },
   ];
 
-  // Офіційний псевдокод Telegram: secret_key = HMAC_SHA256(<bot_token>, "WebAppData").
-  // У HMAC секретним ключем є перший аргумент, тож тут token у ролі ключа, "WebAppData" — повідомлення.
   const secretOfficial = crypto.createHmac("sha256", token).update("WebAppData").digest();
-  // Деякі сторонні бібліотеки інтерпретують текст доки навпаки — спробуємо як фолбек.
   const secretAlt = crypto.createHmac("sha256", "WebAppData").update(token).digest();
   const secrets = [
-    { label: "secret=hmac(token, 'WebAppData')", key: secretOfficial },
     { label: "secret=hmac('WebAppData', token)", key: secretAlt },
+    { label: "secret=hmac(token, 'WebAppData')", key: secretOfficial },
   ];
 
   let matched = null;
@@ -121,7 +263,7 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
       const calculated = crypto.createHmac("sha256", sec.key).update(v.str).digest("hex");
       const ah = Buffer.from(calculated, "hex");
       if (ah.length === bh.length && crypto.timingSafeEqual(ah, bh)) {
-        matched = { secret: sec.label, variant: v.label };
+        matched = { mode: "hmac", secret: sec.label, variant: v.label };
         break outer;
       }
     }
@@ -175,4 +317,6 @@ module.exports = {
   verifyTelegramWebAppInitData,
   getTelegramIdsFromVerified,
   parseRawQueryPairs,
+  normalizeBotToken,
+  parseBotIdFromToken,
 };

@@ -2,7 +2,11 @@ const express = require("express");
 const { calcScore } = require("../testLogic");
 const Q = require("../bot/queries");
 const { verifyOpenTestNavToken } = require("../telegramMiniApp/sign");
-const { verifyTelegramWebAppInitData, getTelegramIdsFromVerified } = require("../telegramMiniApp/initData");
+const {
+  verifyTelegramWebAppInitData,
+  getTelegramIdsFromVerified,
+  normalizeBotToken,
+} = require("../telegramMiniApp/initData");
 const sessions = require("../telegramMiniApp/sessions");
 const { createSessionFromAccessRow, buildQuestionView, advanceWithAnswer } = require("../telegramMiniApp/flow");
 
@@ -19,13 +23,13 @@ router.get("/ping", (_req, res) =>
   res.json({
     ok: true,
     ts: new Date().toISOString(),
-    hasBotToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    hasBotToken: Boolean(normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN)),
   })
 );
 
 /** Хто такий бот, що стоїть за TELEGRAM_BOT_TOKEN. Корисно, коли user бачить «Невірні дані» — швидко перевіряєш bot mismatch. */
 router.get("/whoami", async (_req, res) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
   if (!token) return res.status(503).json({ ok: false, error: "TELEGRAM_BOT_TOKEN не налаштовано" });
   try {
     const r = await fetch(`https://api.telegram.org/bot${token}/getMe`);
@@ -67,7 +71,7 @@ async function notifyTeacherAfterAttempt(session, score, originalTest) {
       `Учень: ${session.studentName || "—"}\n` +
       `Тест: ${originalTest?.title || "—"}\n` +
       `Бали: ${pts} з ${maxPts} (${pct}%)`;
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
     if (!token) return;
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     const tgRes = await fetch(url, {
@@ -149,10 +153,17 @@ async function finalizeSession(session) {
 const FRIENDLY_REASONS = {
   missing_initdata: "Mini App відкрито поза Telegram або без даних авторизації.",
   missing_bot_token: "Сервер не налаштовано: відсутній TELEGRAM_BOT_TOKEN.",
-  no_hash: "Telegram не передав поле hash. Закрийте і відкрийте тест ще раз.",
+  bad_bot_token_format:
+    "TELEGRAM_BOT_TOKEN має вигляд 123456789:AAH… — перевірте, що в Render немає зайвих пробілів, лапок чи переносів рядка.",
+  no_hash:
+    "Telegram не передав поле hash (інколи при старому клієнті). Оновіть Telegram або закрийте й відкрийте тест знову.",
   bad_hash_format: "Поле hash пошкоджено. Закрийте і відкрийте тест ще раз.",
   bad_hash:
-    "Підпис Telegram не співпав з токеном бота. Перевірте, що TELEGRAM_BOT_TOKEN на сервері належить тому самому боту, з якого відкрили Mini App.",
+    "Застаріла або неправильна перевірка HMAC. Якщо це повторюється — оновіть застосунок на сервері; актуальні клієнти використовують поле signature (Ed25519).",
+  bad_signature:
+    "Підпис Ed25519 (поле signature) не збігся. Перевірте середовище: для тестового Telegram задайте TELEGRAM_MINIAPP_TEST_ENV=true в Render.",
+  bad_signature_format: "Поле signature пошкоджене. Закрийте й відкрийте Mini App знову.",
+  no_signature: "Внутрішня помилка перевірки signature.",
   no_auth_date: "У даних Telegram відсутня auth_date.",
   stale: "Сесію Telegram застаріло (>24 год). Поверніться до чату з ботом і відкрийте тест знову.",
   bad_user: "Telegram передав некоректне поле user.",
@@ -160,7 +171,7 @@ const FRIENDLY_REASONS = {
 };
 
 function verifyClient(initData) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const botToken = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
   if (!botToken) {
     return {
       ok: false,
@@ -202,7 +213,7 @@ function sendVerifyError(res, client) {
 router.post("/start", async (req, res) => {
   try {
     const { initData, token } = req.body || {};
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const botToken = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
     const client = verifyClient(initData);
     if (!client.ok) return sendVerifyError(res, client);
 
