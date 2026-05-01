@@ -1,15 +1,16 @@
 const crypto = require("crypto");
 
+/** application/x-www-form-urlencoded → utf-8 (як це робить Telegram WebApp). */
 function decodeFormComponent(raw) {
   if (raw == null) return "";
   try {
-    return decodeURIComponent(String(raw).replace(/\+/g, " "));
+    return decodeURIComponent(String(raw).replace(/\+/g, "%20"));
   } catch {
     return String(raw);
   }
 }
 
-/** Розбір query-string без зміни значень (лише розділення по &) */
+/** Розбір query-string без зміни значень (лише розділення по &). */
 function parseRawQueryPairs(initData) {
   const map = {};
   const s = String(initData || "").trim();
@@ -17,7 +18,10 @@ function parseRawQueryPairs(initData) {
   for (const segment of s.split("&")) {
     if (!segment) continue;
     const eq = segment.indexOf("=");
-    if (eq < 0) continue;
+    if (eq < 0) {
+      map[segment] = "";
+      continue;
+    }
     const key = segment.slice(0, eq);
     const rawVal = segment.slice(eq + 1);
     map[key] = rawVal;
@@ -25,75 +29,117 @@ function parseRawQueryPairs(initData) {
   return map;
 }
 
-function buildCheckStringDecodedFromRawMap(rawMap) {
-  const keys = Object.keys(rawMap)
-    .filter((k) => k !== "hash" && k !== "signature")
-    .sort((a, b) => a.localeCompare(b));
-  return keys.map((k) => `${k}=${decodeFormComponent(rawMap[k])}`).join("\n");
+const EXCLUDE_FROM_HASH = new Set(["hash", "signature"]);
+
+function sortedKeys(rawMap) {
+  return Object.keys(rawMap)
+    .filter((k) => !EXCLUDE_FROM_HASH.has(k))
+    .sort();
 }
 
-function buildCheckStringRawFromRawMap(rawMap) {
-  const keys = Object.keys(rawMap)
-    .filter((k) => k !== "hash" && k !== "signature")
-    .sort((a, b) => a.localeCompare(b));
-  return keys.map((k) => `${k}=${rawMap[k]}`).join("\n");
+function buildCheckStringDecoded(rawMap) {
+  return sortedKeys(rawMap)
+    .map((k) => `${k}=${decodeFormComponent(rawMap[k])}`)
+    .join("\n");
+}
+
+function buildCheckStringRaw(rawMap) {
+  return sortedKeys(rawMap)
+    .map((k) => `${k}=${rawMap[k]}`)
+    .join("\n");
 }
 
 function buildCheckStringFromURLSearchParams(initData) {
   const params = new URLSearchParams(initData);
-  params.delete("hash");
-  params.delete("signature");
-  const keys = [...new Set([...params.keys()])].sort((a, b) => a.localeCompare(b));
+  for (const k of EXCLUDE_FROM_HASH) params.delete(k);
+  const keys = [...new Set([...params.keys()])].sort();
   return keys.map((k) => `${k}=${params.get(k)}`).join("\n");
 }
 
+function describeInitData(rawMap) {
+  const fields = sortedKeys(rawMap);
+  const initLen = Object.entries(rawMap).reduce((n, [k, v]) => n + k.length + 1 + (v ? v.length : 0) + 1, 0);
+  return {
+    fieldCount: fields.length,
+    fields,
+    hasHash: !!rawMap.hash,
+    hasSignature: !!rawMap.signature,
+    hasUser: !!rawMap.user,
+    hasAuthDate: !!rawMap.auth_date,
+    initLen,
+  };
+}
+
 /**
- * Перевірка initData з Telegram.WebApp (core.telegram.org / bots / webapps).
- * Через відмінності кодування query-string пробуємо кілька канонічних варіантів data-check-string.
+ * Перевірка initData з Telegram.WebApp за офіційним псевдокодом
+ * (core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app).
+ * Через історичні відмінності клієнтів пробуємо кілька канонічних варіантів data-check-string,
+ * але вмикаємо лише варіанти, які відповідають документації.
  */
 function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } = {}) {
   const token = String(botToken || "").trim();
-  if (!initData || typeof initData !== "string" || !token) {
-    return { ok: false, reason: "missing" };
+  if (!initData || typeof initData !== "string") {
+    return { ok: false, reason: "missing_initdata" };
+  }
+  if (!token) {
+    return { ok: false, reason: "missing_bot_token" };
   }
 
   const rawMap = parseRawQueryPairs(initData);
-  const hash = rawMap.hash ? decodeFormComponent(rawMap.hash) : null;
-  if (!hash) return { ok: false, reason: "no_hash" };
+  const meta = describeInitData(rawMap);
 
-  const bh = Buffer.from(hash, "hex");
-  if (bh.length !== 32) return { ok: false, reason: "bad_hash_format" };
+  const hashHex = rawMap.hash ? decodeFormComponent(rawMap.hash) : null;
+  if (!hashHex) return { ok: false, reason: "no_hash", meta };
+
+  let bh;
+  try {
+    bh = Buffer.from(hashHex, "hex");
+  } catch {
+    return { ok: false, reason: "bad_hash_format", meta };
+  }
+  if (bh.length !== 32) return { ok: false, reason: "bad_hash_format", meta };
 
   const checkVariants = [
-    buildCheckStringDecodedFromRawMap(rawMap),
-    buildCheckStringRawFromRawMap(rawMap),
-    buildCheckStringFromURLSearchParams(initData),
+    { label: "decoded", str: buildCheckStringDecoded(rawMap) },
+    { label: "raw", str: buildCheckStringRaw(rawMap) },
+    { label: "URLSearchParams", str: buildCheckStringFromURLSearchParams(initData) },
   ];
 
-  // Документація (псевдокод): secret_key = HMAC_SHA256(<bot_token>, "WebAppData")
+  // Офіційний псевдокод Telegram: secret_key = HMAC_SHA256(<bot_token>, "WebAppData").
+  // У HMAC секретним ключем є перший аргумент, тож тут token у ролі ключа, "WebAppData" — повідомлення.
   const secretOfficial = crypto.createHmac("sha256", token).update("WebAppData").digest();
-  // Поширена інтерпретація тексту доки: key="WebAppData", msg=bot_token
+  // Деякі сторонні бібліотеки інтерпретують текст доки навпаки — спробуємо як фолбек.
   const secretAlt = crypto.createHmac("sha256", "WebAppData").update(token).digest();
+  const secrets = [
+    { label: "secret=hmac(token, 'WebAppData')", key: secretOfficial },
+    { label: "secret=hmac('WebAppData', token)", key: secretAlt },
+  ];
 
-  let matched = false;
-  for (const secretKey of [secretOfficial, secretAlt]) {
-    for (const dataCheckString of checkVariants) {
-      const calculated = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+  let matched = null;
+  outer: for (const sec of secrets) {
+    for (const v of checkVariants) {
+      const calculated = crypto.createHmac("sha256", sec.key).update(v.str).digest("hex");
       const ah = Buffer.from(calculated, "hex");
       if (ah.length === bh.length && crypto.timingSafeEqual(ah, bh)) {
-        matched = true;
-        break;
+        matched = { secret: sec.label, variant: v.label };
+        break outer;
       }
     }
-    if (matched) break;
   }
 
-  if (!matched) return { ok: false, reason: "bad_hash" };
+  if (!matched) {
+    return { ok: false, reason: "bad_hash", meta };
+  }
 
   const params = new URLSearchParams(initData);
   const authDate = Number(params.get("auth_date") || "0");
-  if (!authDate || Number.isNaN(authDate)) return { ok: false, reason: "no_auth_date" };
-  if (Math.floor(Date.now() / 1000) - authDate > maxAgeSec) return { ok: false, reason: "stale" };
+  if (!Number.isFinite(authDate) || authDate <= 0) {
+    return { ok: false, reason: "no_auth_date", meta };
+  }
+  const ageSec = Math.floor(Date.now() / 1000) - authDate;
+  if (ageSec > maxAgeSec) {
+    return { ok: false, reason: "stale", meta: { ...meta, ageSec, maxAgeSec } };
+  }
 
   let user = null;
   const userJson = params.get("user");
@@ -101,7 +147,7 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
     try {
       user = JSON.parse(userJson);
     } catch {
-      return { ok: false, reason: "bad_user" };
+      return { ok: false, reason: "bad_user", meta };
     }
   }
 
@@ -111,11 +157,11 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
     try {
       chat = JSON.parse(chatJson);
     } catch {
-      return { ok: false, reason: "bad_chat" };
+      return { ok: false, reason: "bad_chat", meta };
     }
   }
 
-  return { ok: true, user, chat, params };
+  return { ok: true, user, chat, params, matched, meta };
 }
 
 function getTelegramIdsFromVerified({ user, chat }) {
@@ -125,4 +171,8 @@ function getTelegramIdsFromVerified({ user, chat }) {
   return { telegramUserId, telegramChatId, user };
 }
 
-module.exports = { verifyTelegramWebAppInitData, getTelegramIdsFromVerified };
+module.exports = {
+  verifyTelegramWebAppInitData,
+  getTelegramIdsFromVerified,
+  parseRawQueryPairs,
+};

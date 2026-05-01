@@ -9,13 +9,46 @@ const { createSessionFromAccessRow, buildQuestionView, advanceWithAnswer } = req
 const router = express.Router();
 router.use(express.json({ limit: "25mb" }));
 
-// Діагностика: щоб бачити, чи Mini App взагалі стукає в бекенд
+// Тех-діагностика: бачимо в логах, чи Mini App взагалі стукає в бекенд.
 router.use((req, _res, next) => {
   console.log("[telegram-webapp]", req.method, req.path);
   next();
 });
 
-router.get("/ping", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+router.get("/ping", (_req, res) =>
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    hasBotToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+  })
+);
+
+/** Хто такий бот, що стоїть за TELEGRAM_BOT_TOKEN. Корисно, коли user бачить «Невірні дані» — швидко перевіряєш bot mismatch. */
+router.get("/whoami", async (_req, res) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return res.status(503).json({ ok: false, error: "TELEGRAM_BOT_TOKEN не налаштовано" });
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const data = await r.json();
+    if (!data.ok) {
+      return res.status(502).json({ ok: false, error: data.description || "getMe failed" });
+    }
+    const me = data.result || {};
+    return res.json({
+      ok: true,
+      bot: {
+        id: me.id,
+        username: me.username,
+        firstName: me.first_name,
+        canJoinGroups: me.can_join_groups,
+        supportsInlineQueries: me.supports_inline_queries,
+      },
+      tokenPreview: `${token.slice(0, 6)}…${token.slice(-4)}`,
+    });
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: e?.message || "Network error" });
+  }
+});
 
 function safePointsNumber(n) {
   const x = typeof n === "number" ? n : Number(n);
@@ -113,19 +146,57 @@ async function finalizeSession(session) {
   };
 }
 
+const FRIENDLY_REASONS = {
+  missing_initdata: "Mini App відкрито поза Telegram або без даних авторизації.",
+  missing_bot_token: "Сервер не налаштовано: відсутній TELEGRAM_BOT_TOKEN.",
+  no_hash: "Telegram не передав поле hash. Закрийте і відкрийте тест ще раз.",
+  bad_hash_format: "Поле hash пошкоджено. Закрийте і відкрийте тест ще раз.",
+  bad_hash:
+    "Підпис Telegram не співпав з токеном бота. Перевірте, що TELEGRAM_BOT_TOKEN на сервері належить тому самому боту, з якого відкрили Mini App.",
+  no_auth_date: "У даних Telegram відсутня auth_date.",
+  stale: "Сесію Telegram застаріло (>24 год). Поверніться до чату з ботом і відкрийте тест знову.",
+  bad_user: "Telegram передав некоректне поле user.",
+  bad_chat: "Telegram передав некоректне поле chat.",
+};
+
 function verifyClient(initData) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return { ok: false, status: 503, error: "TELEGRAM_BOT_TOKEN не налаштовано" };
+  if (!botToken) {
+    return {
+      ok: false,
+      status: 503,
+      reason: "missing_bot_token",
+      error: FRIENDLY_REASONS.missing_bot_token,
+    };
+  }
   const v = verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec: 86400 });
   if (!v.ok) {
-    console.warn("[telegram-webapp] initData rejected:", v.reason);
-    return { ok: false, status: 401, error: "Невірні дані Telegram" };
+    console.warn("[telegram-webapp] initData rejected:", v.reason, v.meta || {});
+    const friendly = FRIENDLY_REASONS[v.reason] || "Невірні дані Telegram";
+    return {
+      ok: false,
+      status: 401,
+      reason: v.reason,
+      error: friendly,
+      meta: v.meta,
+    };
   }
   const ids = getTelegramIdsFromVerified(v);
   if (ids.telegramUserId == null) {
-    return { ok: false, status: 401, error: "Немає user у initData" };
+    return {
+      ok: false,
+      status: 401,
+      reason: "no_user_id",
+      error: "У даних Telegram немає id користувача.",
+    };
   }
-  return { ok: true, ...ids };
+  return { ok: true, ...ids, matched: v.matched };
+}
+
+function sendVerifyError(res, client) {
+  const body = { error: client.error, reason: client.reason };
+  if (process.env.NODE_ENV !== "production") body.meta = client.meta;
+  return res.status(client.status).json(body);
 }
 
 router.post("/start", async (req, res) => {
@@ -133,16 +204,16 @@ router.post("/start", async (req, res) => {
     const { initData, token } = req.body || {};
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const client = verifyClient(initData);
-    if (!client.ok) return res.status(client.status).json({ error: client.error });
+    if (!client.ok) return sendVerifyError(res, client);
 
     const nav = verifyOpenTestNavToken(botToken, token);
-    if (!nav) return res.status(401).json({ error: "Посилання застаріло або пошкоджене" });
+    if (!nav) return res.status(401).json({ error: "Посилання застаріло або пошкоджене", reason: "bad_nav_token" });
 
     const row = await Q.validateTestAccess(client.telegramUserId, nav.testUuid);
-    if (!row) return res.status(403).json({ error: "Тест недоступний" });
+    if (!row) return res.status(403).json({ error: "Тест недоступний для цього акаунту.", reason: "no_access" });
 
     const built = createSessionFromAccessRow(row, client.telegramUserId, client.telegramChatId);
-    if (built.error) return res.status(400).json({ error: "Не вдалося відкрити тест" });
+    if (built.error) return res.status(400).json({ error: "Не вдалося відкрити тест", reason: built.error });
 
     const session = built.session;
     if (session.qi >= session.test.questions.length) {
@@ -151,10 +222,15 @@ router.post("/start", async (req, res) => {
     }
     const sessionId = sessions.put(session);
     const view = buildQuestionView(session);
-    return res.json({ sessionId, view });
+    return res.json({
+      sessionId,
+      view,
+      title: session.originalTest?.title || row.title || "Тест",
+      studentName: session.studentName,
+    });
   } catch (e) {
     console.error("[telegram-webapp/start]", e);
-    return res.status(500).json({ error: "Помилка сервера" });
+    return res.status(500).json({ error: "Помилка сервера", reason: "server_error" });
   }
 });
 
@@ -162,16 +238,16 @@ router.post("/answer", async (req, res) => {
   try {
     const { initData, sessionId, answer } = req.body || {};
     const client = verifyClient(initData);
-    if (!client.ok) return res.status(client.status).json({ error: client.error });
+    if (!client.ok) return sendVerifyError(res, client);
 
     const session = sessions.get(sessionId);
-    if (!session) return res.status(404).json({ error: "Сесію не знайдено" });
+    if (!session) return res.status(404).json({ error: "Сесію не знайдено", reason: "no_session" });
     if (String(session.telegramUserId) !== String(client.telegramUserId)) {
-      return res.status(403).json({ error: "Чужа сесія" });
+      return res.status(403).json({ error: "Чужа сесія", reason: "session_mismatch" });
     }
 
     const adv = advanceWithAnswer(session, answer || {});
-    if (!adv.ok) return res.status(400).json({ error: adv.error || "Некоректна відповідь" });
+    if (!adv.ok) return res.status(400).json({ error: adv.error || "Некоректна відповідь", reason: adv.error });
 
     if (session.qi >= session.test.questions.length) {
       const result = await finalizeSession(session);
@@ -183,7 +259,7 @@ router.post("/answer", async (req, res) => {
     return res.json({ done: false, view });
   } catch (e) {
     console.error("[telegram-webapp/answer]", e);
-    return res.status(500).json({ error: "Помилка сервера" });
+    return res.status(500).json({ error: "Помилка сервера", reason: "server_error" });
   }
 });
 

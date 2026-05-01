@@ -1,42 +1,133 @@
 (function () {
   const $ = (id) => document.getElementById(id);
 
-  const screenLoading = $("screen-loading");
-  const screenError = $("screen-error");
-  const screenQuiz = $("screen-quiz");
-  const screenDone = $("screen-done");
-  const loadingText = $("loading-text");
-  const errorText = $("error-text");
-  const progressFill = $("progress-fill");
-  const quizMeta = $("quiz-meta");
-  const qImageWrap = $("q-image-wrap");
-  const qImage = $("q-image");
-  const qText = $("q-text");
-  const qBody = $("q-body");
-  const btnSubmit = $("btn-submit");
-  const btnCloseError = $("btn-close-error");
-  const btnCloseApp = $("btn-close-app");
-  const doneMessage = $("done-message");
+  const screens = {
+    loading: $("screen-loading"),
+    error: $("screen-error"),
+    quiz: $("screen-quiz"),
+    done: $("screen-done"),
+  };
+  const els = {
+    loadingText: $("loading-text"),
+    errorTitle: $("error-title"),
+    errorText: $("error-text"),
+    errorDetail: $("error-detail"),
+    btnRetry: $("btn-retry"),
+    btnCloseError: $("btn-close-error"),
+    btnCloseApp: $("btn-close-app"),
+    btnSubmit: $("btn-submit"),
+    quizFoot: $("quiz-foot"),
+    progressFill: $("progress-fill"),
+    quizMetaQ: $("quiz-meta-question"),
+    quizMetaType: $("quiz-meta-type"),
+    qImageWrap: $("q-image-wrap"),
+    qImage: $("q-image"),
+    qText: $("q-text"),
+    qHint: $("q-hint"),
+    qBody: $("q-body"),
+    doneMessage: $("done-message"),
+    topbarTitle: $("topbar-title"),
+    topbarSub: $("topbar-sub"),
+    topbarMeta: $("topbar-meta"),
+  };
 
-  let tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+
+  /** @type {string|null} */
   let sessionId = null;
   /** @type {Set<number>} */
   let selectedCheck = new Set();
+  /** @type {number|null} */
+  let selectedRadio = null;
+  /** @type {(() => void)|null} */
+  let lastStartFn = null;
 
-  function show(el) {
-    [screenLoading, screenError, screenQuiz, screenDone].forEach((n) => n.classList.add("hidden"));
-    el.classList.remove("hidden");
+  const TYPE_LABELS = {
+    radio: "Один варіант",
+    check: "Кілька варіантів",
+    text: "Відкрите питання",
+    matching: "Відповідність",
+  };
+
+  function show(name) {
+    Object.values(screens).forEach((s) => s.classList.add("hidden"));
+    screens[name].classList.remove("hidden");
+    if (name !== "quiz") {
+      hideMainButton();
+      els.quizFoot.classList.add("hidden");
+    }
+  }
+
+  function setSubmitVisible(visible) {
+    if (!visible) {
+      els.btnSubmit.classList.add("hidden");
+      els.quizFoot.classList.add("hidden");
+      hideMainButton();
+      return;
+    }
+    els.btnSubmit.classList.remove("hidden");
+    els.quizFoot.classList.remove("hidden");
   }
 
   function applyTheme() {
     if (!tg || !tg.themeParams) return;
-    const p = tg.themeParams;
-    const root = document.documentElement;
-    if (p.bg_color) root.style.setProperty("--bg", p.bg_color);
-    if (p.text_color) root.style.setProperty("--text", p.text_color);
-    if (p.secondary_bg_color) root.style.setProperty("--card", p.secondary_bg_color);
-    if (p.hint_color) root.style.setProperty("--muted", p.hint_color);
-    if (p.button_color) root.style.setProperty("--accent", p.button_color);
+    // Зберігаємо темну палітру TeacherJournal — лише ставимо Telegram-кольори системного chrome.
+    try {
+      tg.setHeaderColor("secondary_bg_color");
+      tg.setBackgroundColor("#0f0f11");
+    } catch {
+      // ignore — старі версії клієнта
+    }
+  }
+
+  function setMainButton(text, onClick) {
+    if (!tg || !tg.MainButton) return false;
+    try {
+      tg.MainButton.setText(text);
+      tg.MainButton.show();
+      tg.MainButton.enable();
+      tg.MainButton.onClick(onClick);
+      tg.MainButton.__handler = onClick;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function hideMainButton() {
+    if (!tg || !tg.MainButton) return;
+    try {
+      if (tg.MainButton.__handler) tg.MainButton.offClick(tg.MainButton.__handler);
+      tg.MainButton.__handler = null;
+      tg.MainButton.hide();
+    } catch {
+      // ignore
+    }
+  }
+
+  function haptic(kind) {
+    if (!tg || !tg.HapticFeedback) return;
+    try {
+      if (kind === "ok") tg.HapticFeedback.impactOccurred("light");
+      else if (kind === "warn") tg.HapticFeedback.notificationOccurred("warning");
+      else if (kind === "error") tg.HapticFeedback.notificationOccurred("error");
+      else if (kind === "success") tg.HapticFeedback.notificationOccurred("success");
+    } catch {
+      // ignore
+    }
+  }
+
+  function alertUser(message) {
+    haptic("warn");
+    if (tg && tg.showAlert) {
+      try {
+        tg.showAlert(message);
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    alert(message);
   }
 
   async function api(path, body) {
@@ -45,226 +136,402 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || `${r.status}`);
-    return data;
-  }
-
-  async function pingBackend() {
+    let data = {};
     try {
-      await fetch("/api/v1/telegram-webapp/ping", { method: "GET" });
+      data = await r.json();
     } catch {
       // ignore
     }
+    if (!r.ok) {
+      const err = new Error(data.error || `HTTP ${r.status}`);
+      err.reason = data.reason || `http_${r.status}`;
+      err.meta = data.meta;
+      err.status = r.status;
+      throw err;
+    }
+    return data;
   }
 
   function getNavToken() {
     const u = new URL(window.location.href);
     const t = u.searchParams.get("t");
-    if (!t || !String(t).trim()) return null;
-    return String(t).trim();
+    return t && String(t).trim() ? String(t).trim() : null;
   }
 
   function setProgress(qi, total) {
     const p = total > 0 ? ((qi + 1) / total) * 100 : 0;
-    progressFill.style.width = `${Math.min(100, Math.max(0, p))}%`;
-    quizMeta.textContent = total ? `Питання ${qi + 1} з ${total}` : "";
+    els.progressFill.style.width = `${Math.min(100, Math.max(0, p))}%`;
+    els.quizMetaQ.textContent = total ? `Питання ${qi + 1} з ${total}` : "Питання";
   }
 
   function renderImage(image) {
     if (image && typeof image === "string" && image.startsWith("data:")) {
-      qImage.src = image;
-      qImage.alt = "";
-      qImageWrap.classList.remove("hidden");
+      els.qImage.src = image;
+      els.qImage.alt = "";
+      els.qImageWrap.classList.remove("hidden");
     } else {
-      qImage.removeAttribute("src");
-      qImageWrap.classList.add("hidden");
+      els.qImage.removeAttribute("src");
+      els.qImageWrap.classList.add("hidden");
     }
   }
 
   function clearQuizBody() {
-    qBody.innerHTML = "";
-    btnSubmit.classList.add("hidden");
+    els.qBody.innerHTML = "";
+    setSubmitVisible(false);
     selectedCheck = new Set();
+    selectedRadio = null;
+    els.qHint.classList.add("hidden");
+    els.qHint.textContent = "";
+  }
+
+  function renderRadio(view) {
+    const opts = view.options || [];
+    const buttons = [];
+    opts.forEach((opt, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "opt";
+
+      const bullet = document.createElement("span");
+      bullet.className = "opt__bullet";
+      const label = document.createElement("span");
+      label.className = "opt__label";
+      label.textContent = opt.text || "—";
+
+      b.appendChild(bullet);
+      b.appendChild(label);
+      b.addEventListener("click", () => {
+        selectedRadio = i;
+        buttons.forEach((btn, idx) => btn.classList.toggle("selected", idx === i));
+        haptic("ok");
+      });
+      els.qBody.appendChild(b);
+      buttons.push(b);
+    });
+    setSubmitVisible(true);
+    els.btnSubmit.textContent = "Надіслати відповідь";
+    els.btnSubmit.onclick = () => {
+      if (selectedRadio == null) {
+        alertUser("Оберіть варіант, щоб продовжити.");
+        return;
+      }
+      void postAnswer({ index: selectedRadio });
+    };
+    setMainButton("Надіслати", () => {
+      if (selectedRadio == null) {
+        alertUser("Оберіть варіант, щоб продовжити.");
+        return;
+      }
+      void postAnswer({ index: selectedRadio });
+    });
+  }
+
+  function checkmarkSvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M3 8.5L6.5 12l7-7.5");
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "2");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function renderCheck(view) {
+    const opts = view.options || [];
+    els.qHint.textContent = "Можна обрати кілька варіантів.";
+    els.qHint.classList.remove("hidden");
+    opts.forEach((opt, i) => {
+      const row = document.createElement("div");
+      row.className = "check-row";
+      row.tabIndex = 0;
+      row.setAttribute("role", "checkbox");
+      row.setAttribute("aria-checked", "false");
+
+      const box = document.createElement("span");
+      box.className = "check-row__box";
+      box.appendChild(checkmarkSvg());
+
+      const label = document.createElement("span");
+      label.className = "check-row__label";
+      label.textContent = opt.text || "—";
+
+      row.appendChild(box);
+      row.appendChild(label);
+
+      const toggle = () => {
+        const isOn = selectedCheck.has(i);
+        if (isOn) {
+          selectedCheck.delete(i);
+          row.classList.remove("selected");
+          row.setAttribute("aria-checked", "false");
+        } else {
+          selectedCheck.add(i);
+          row.classList.add("selected");
+          row.setAttribute("aria-checked", "true");
+        }
+        haptic("ok");
+      };
+      row.addEventListener("click", toggle);
+      row.addEventListener("keydown", (e) => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          toggle();
+        }
+      });
+
+      els.qBody.appendChild(row);
+    });
+
+    setSubmitVisible(true);
+    els.btnSubmit.textContent = "Надіслати відповідь";
+    const submit = () => {
+      const indices = [...selectedCheck].sort((a, b) => a - b);
+      if (indices.length === 0) {
+        alertUser("Оберіть хоча б один варіант.");
+        return;
+      }
+      void postAnswer({ indices });
+    };
+    els.btnSubmit.onclick = submit;
+    setMainButton("Надіслати", submit);
+  }
+
+  function renderText() {
+    const ta = document.createElement("textarea");
+    ta.className = "textarea";
+    ta.id = "answer-text";
+    ta.placeholder = "Ваша відповідь…";
+    ta.autocapitalize = "sentences";
+    ta.autocomplete = "off";
+    ta.spellcheck = true;
+    els.qBody.appendChild(ta);
+    setTimeout(() => ta.focus(), 50);
+
+    setSubmitVisible(true);
+    els.btnSubmit.textContent = "Надіслати відповідь";
+    const submit = () => {
+      const raw = String(ta.value || "").trim();
+      if (!raw) {
+        alertUser("Введіть відповідь.");
+        return;
+      }
+      void postAnswer({ text: raw });
+    };
+    els.btnSubmit.onclick = submit;
+    setMainButton("Надіслати", submit);
+  }
+
+  function renderMatching(view) {
+    const head = document.createElement("div");
+    head.className = "match-head";
+    const meta = document.createElement("div");
+    meta.className = "match-head__meta";
+    meta.textContent = `Пара ${(view.pairIndex || 0) + 1} з ${view.pairTotal || 0}`;
+    const left = document.createElement("div");
+    left.className = "match-head__left";
+    left.textContent = view.left || "";
+    head.appendChild(meta);
+    head.appendChild(left);
+    els.qBody.appendChild(head);
+
+    const choices = view.choices || [];
+    const buttons = [];
+    let chosenIdx = null;
+    choices.forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "opt";
+
+      const bullet = document.createElement("span");
+      bullet.className = "opt__bullet";
+      const label = document.createElement("span");
+      label.className = "opt__label";
+      label.textContent = c.text || "—";
+
+      b.appendChild(bullet);
+      b.appendChild(label);
+      b.addEventListener("click", () => {
+        chosenIdx = c.i;
+        buttons.forEach((btn, idx) => btn.classList.toggle("selected", choices[idx].i === c.i));
+        haptic("ok");
+      });
+      els.qBody.appendChild(b);
+      buttons.push(b);
+    });
+
+    setSubmitVisible(true);
+    els.btnSubmit.textContent = "Підтвердити";
+    const submit = () => {
+      if (chosenIdx == null) {
+        alertUser("Оберіть відповідність праворуч.");
+        return;
+      }
+      void postAnswer({ index: chosenIdx });
+    };
+    els.btnSubmit.onclick = submit;
+    setMainButton("Підтвердити", submit);
   }
 
   function renderView(view) {
     if (!view || view.phase === "done") return;
-
     const { qi, total, text, image, type } = view;
     setProgress(qi, total);
-    qText.textContent = text || "—";
+    els.qText.textContent = text || "—";
+    els.quizMetaType.textContent = TYPE_LABELS[type] || type || "";
     renderImage(image);
     clearQuizBody();
 
-    if (type === "radio") {
-      const opts = view.options || [];
-      opts.forEach((opt, i) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "opt";
-        b.textContent = opt.text || "—";
-        b.addEventListener("click", () => void sendRadio(i));
-        qBody.appendChild(b);
-      });
-      return;
-    }
+    if (type === "radio") return renderRadio(view);
+    if (type === "check") return renderCheck(view);
+    if (type === "text") return renderText();
+    if (type === "matching") return renderMatching(view);
 
-    if (type === "check") {
-      const opts = view.options || [];
-      opts.forEach((opt, i) => {
-        const row = document.createElement("div");
-        row.className = "check-row";
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.id = `cb-${i}`;
-        const lab = document.createElement("label");
-        lab.htmlFor = `cb-${i}`;
-        lab.textContent = opt.text || "—";
-        cb.addEventListener("change", () => {
-          if (cb.checked) selectedCheck.add(i);
-          else selectedCheck.delete(i);
-        });
-        row.appendChild(cb);
-        row.appendChild(lab);
-        qBody.appendChild(row);
-      });
-      btnSubmit.classList.remove("hidden");
-      btnSubmit.onclick = () => void sendCheck();
-      return;
-    }
-
-    if (type === "text") {
-      const ta = document.createElement("textarea");
-      ta.className = "textarea";
-      ta.id = "answer-text";
-      ta.placeholder = "Ваша відповідь…";
-      qBody.appendChild(ta);
-      btnSubmit.classList.remove("hidden");
-      btnSubmit.onclick = () => void sendText(ta.value);
-      return;
-    }
-
-    if (type === "matching") {
-      const left = document.createElement("div");
-      left.className = "match-left";
-      const line1 = document.createElement("span");
-      line1.textContent = `Пара ${(view.pairIndex || 0) + 1} з ${view.pairTotal || 0}`;
-      const strong = document.createElement("strong");
-      strong.textContent = view.left || "";
-      left.appendChild(line1);
-      left.appendChild(strong);
-      qBody.appendChild(left);
-      const choices = view.choices || [];
-      choices.forEach((c) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "opt";
-        b.textContent = c.text || "—";
-        b.addEventListener("click", () => void sendMatching(c.i));
-        qBody.appendChild(b);
-      });
-    }
+    els.qHint.textContent = "Невідомий тип питання — пропускаємо.";
+    els.qHint.classList.remove("hidden");
+    setSubmitVisible(true);
+    els.btnSubmit.textContent = "Далі";
+    const submit = () => void postAnswer({});
+    els.btnSubmit.onclick = submit;
+    setMainButton("Далі", submit);
   }
 
-  async function sendRadio(index) {
-    await postAnswer({ index });
-  }
-
-  async function sendCheck() {
-    const indices = [...selectedCheck].sort((a, b) => a - b);
-    if (indices.length === 0) {
-      if (tg) tg.showAlert("Оберіть хоча б один варіант.");
-      else alert("Оберіть хоча б один варіант.");
-      return;
+  function showError({ title, message, detail, retry }) {
+    haptic("error");
+    els.errorTitle.textContent = title || "Не вдалося відкрити тест";
+    els.errorText.textContent = message || "Невідома помилка";
+    if (detail) {
+      els.errorDetail.textContent = detail;
+      els.errorDetail.classList.remove("hidden");
+    } else {
+      els.errorDetail.classList.add("hidden");
     }
-    await postAnswer({ indices });
+    els.btnRetry.classList.toggle("hidden", !retry);
+    els.btnRetry.onclick = retry || null;
+    show("error");
   }
 
-  async function sendText(raw) {
-    const text = String(raw || "").trim();
-    if (!text) {
-      if (tg) tg.showAlert("Введіть відповідь.");
-      else alert("Введіть відповідь.");
-      return;
+  function describeError(e) {
+    const msg = e?.message || "Помилка";
+    const reason = e?.reason || "";
+    let detail = "";
+    if (reason) detail += `reason: ${reason}\n`;
+    if (e?.meta) {
+      try {
+        detail += JSON.stringify(e.meta, null, 2);
+      } catch {
+        // ignore
+      }
     }
-    await postAnswer({ text });
-  }
-
-  async function sendMatching(index) {
-    await postAnswer({ index });
+    return { msg, detail: detail.trim() };
   }
 
   async function postAnswer(answer) {
     if (!tg || !tg.initData) {
-      errorText.textContent = "Відкрийте сторінку з Telegram (Mini App).";
-      show(screenError);
+      showError({
+        title: "Mini App відкрито поза Telegram",
+        message: "Поверніться до бота і відкрийте тест через кнопку «📋 Обрати тест».",
+      });
       return;
     }
     try {
-      loadingText.textContent = "Збереження…";
-      show(screenLoading);
+      els.loadingText.textContent = "Збереження…";
+      show("loading");
       const data = await api("/answer", { initData: tg.initData, sessionId, answer });
       if (data.done && data.result) {
-        doneMessage.textContent = data.result.message || "";
-        show(screenDone);
-        if (tg) tg.expand();
+        haptic("success");
+        els.doneMessage.textContent = data.result.message || "";
+        show("done");
+        if (tg && tg.expand) tg.expand();
         return;
       }
-      show(screenQuiz);
+      show("quiz");
       renderView(data.view);
     } catch (e) {
-      errorText.textContent = e.message || "Помилка";
-      show(screenError);
+      const { msg, detail } = describeError(e);
+      showError({ title: "Не вдалося надіслати відповідь", message: msg, detail });
     }
   }
 
   function showDoneFromStart(result) {
-    doneMessage.textContent = (result && result.message) || "Тест завершено.";
-    show(screenDone);
+    haptic("success");
+    els.doneMessage.textContent = (result && result.message) || "Тест завершено.";
+    show("done");
   }
 
   async function start() {
-    void pingBackend();
+    lastStartFn = start;
     const token = getNavToken();
     if (!token) {
-      errorText.textContent = "Немає посилання на тест (?t=…).";
-      show(screenError);
+      showError({
+        title: "Немає посилання на тест",
+        message: "Поверніться до Telegram-бота і натисніть «📋 Обрати тест», щоб обрати тест із меню.",
+      });
       return;
     }
     if (!tg || !tg.initData) {
-      errorText.textContent = "Відкрийте через кнопку тесту в Telegram.";
-      show(screenError);
+      showError({
+        title: "Mini App відкрито поза Telegram",
+        message:
+          "Цю сторінку треба відкривати лише через кнопку тесту в Telegram. Поверніться до чату з ботом і виберіть тест.",
+      });
       return;
     }
     try {
-      loadingText.textContent = "Підготовка тесту…";
-      show(screenLoading);
+      els.loadingText.textContent = "Підготовка тесту…";
+      show("loading");
       const data = await api("/start", { initData: tg.initData, token });
+      if (data.title) {
+        els.topbarTitle.textContent = data.title;
+        els.topbarSub.textContent = "Тестування";
+      }
+      if (data.studentName) {
+        els.topbarMeta.textContent = data.studentName;
+      }
       if (data.done && data.result) {
         showDoneFromStart(data.result);
         return;
       }
       sessionId = data.sessionId;
-      show(screenQuiz);
+      show("quiz");
       renderView(data.view);
     } catch (e) {
-      errorText.textContent = e.message || "Помилка";
-      show(screenError);
+      const { msg, detail } = describeError(e);
+      showError({
+        title: "Не вдалося відкрити тест",
+        message: msg,
+        detail,
+        retry: () => void start(),
+      });
     }
   }
 
-  btnCloseError.addEventListener("click", () => {
-    if (tg) tg.close();
+  els.btnCloseError.addEventListener("click", () => {
+    if (tg && tg.close) tg.close();
   });
-  btnCloseApp.addEventListener("click", () => {
-    if (tg) tg.close();
+  els.btnCloseApp.addEventListener("click", () => {
+    if (tg && tg.close) tg.close();
+  });
+  els.btnRetry.addEventListener("click", () => {
+    if (lastStartFn) void lastStartFn();
   });
 
   if (tg) {
-    tg.ready();
-    tg.expand();
+    try {
+      tg.ready();
+      tg.expand();
+    } catch {
+      // ignore
+    }
     applyTheme();
+    if (tg.onEvent) {
+      tg.onEvent("themeChanged", applyTheme);
+    }
   }
+
   start();
 })();
