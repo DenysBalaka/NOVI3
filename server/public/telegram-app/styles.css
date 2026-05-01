@@ -650,6 +650,19 @@ body {
   margin-bottom: 4px;
 }
 
+.match-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: stretch;
+}
+
+@media (max-width: 420px) {
+  .match-choices {
+    grid-template-columns: 1fr;
+  }
+}
+
 .match-head__meta {
   font-size: 11px;
   color: var(--text-secondary);

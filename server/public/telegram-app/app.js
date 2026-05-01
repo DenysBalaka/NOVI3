@@ -403,6 +403,10 @@
     head.appendChild(left);
     els.qBody.appendChild(head);
 
+    const grid = document.createElement("div");
+    grid.className = "match-choices";
+    els.qBody.appendChild(grid);
+
     const choices = view.choices || [];
     const buttons = [];
     let chosenIdx = null;
@@ -424,7 +428,7 @@
         buttons.forEach((btn, idx) => btn.classList.toggle("selected", choices[idx].i === c.i));
         haptic("ok");
       });
-      els.qBody.appendChild(b);
+      grid.appendChild(b);
       buttons.push(b);
     });
 
