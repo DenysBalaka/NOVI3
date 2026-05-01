@@ -76,10 +76,12 @@ function base64UrlToBuffer(s) {
 }
 
 /**
- * Новий формат (Bot API з полем signature): Ed25519 за публічним ключем Telegram.
+ * Новий формат (поле signature): Ed25519 за публічним ключем Telegram.
+ * Є два ключі: production і test (test-оточення Bot API). Якщо на Render помилково
+ * TELEGRAM_MINIAPP_TEST_ENV=true, а клієнт — звичайний Telegram, спершу мимо ключ спрацьовував би лише один раз — тому пробуємо обидва порядки й попереджаємо в логах.
  * @see https://core.telegram.org/bots/webapps#validating-data-for-third-party-use
  */
-function verifyInitDataEd25519(initData, botId, { testEnv = false } = {}) {
+function verifyInitDataEd25519(initData, botId, { preferTestKey = false } = {}) {
   const params = new URLSearchParams(initData);
   const sigRaw = params.get("signature");
   if (!sigRaw || !String(sigRaw).trim()) {
@@ -106,20 +108,35 @@ function verifyInitDataEd25519(initData, botId, { testEnv = false } = {}) {
     return { ok: false, reason: "bad_signature_format" };
   }
 
-  const pub = telegramEd25519PublicKey(testEnv);
-  try {
-    const ok = crypto.verify(null, msg, pub, sigBuf);
-    if (!ok) return { ok: false, reason: "bad_signature" };
-  } catch {
-    return { ok: false, reason: "bad_signature" };
-  }
-
   const authDate = Number(authDateStr || "0");
   if (!Number.isFinite(authDate) || authDate <= 0) {
     return { ok: false, reason: "no_auth_date" };
   }
 
-  return { ok: true, authDate };
+  const tryTestKeyFirst = Boolean(preferTestKey);
+  const order = tryTestKeyFirst ? [true, false] : [false, true];
+
+  for (const useTestKey of order) {
+    const pub = telegramEd25519PublicKey(useTestKey);
+    try {
+      const ok = crypto.verify(null, msg, pub, sigBuf);
+      if (ok) {
+        if (useTestKey !== tryTestKeyFirst) {
+          console.warn(
+            `[telegram-webapp] Ed25519 OK з ${useTestKey ? "тестовим" : "продакшен"} ключем; TELEGRAM_MINIAPP_TEST_ENV=${tryTestKeyFirst}. ` +
+              (tryTestKeyFirst
+                ? "Видаліть або встановіть false для TELEGRAM_MINIAPP_TEST_ENV, якщо учні відкривають Mini App у звичайному Telegram (не test platform)."
+                : "Увімкніть TELEGRAM_MINIAPP_TEST_ENV=true лише якщо бот підключений до test environment Telegram.")
+          );
+        }
+        return { ok: true, authDate, ed25519TestKey: useTestKey };
+      }
+    } catch {
+      // пробуємо інший ключ
+    }
+  }
+
+  return { ok: false, reason: "bad_signature" };
 }
 
 function sortedKeysForHmac(rawMap) {
@@ -187,7 +204,7 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
   const hasSignature = !!(paramsAll.get("signature") || "").trim();
   const meta = { ...describeInitData(rawMap), hasSignature };
 
-  const testEnv =
+  const preferTestKey =
     process.env.TELEGRAM_MINIAPP_TEST_ENV === "true" ||
     process.env.TELEGRAM_MINI_APP_TEST === "true";
 
@@ -196,7 +213,7 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
     if (!botId) {
       return { ok: false, reason: "bad_bot_token_format", meta };
     }
-    const ed = verifyInitDataEd25519(initData, botId, { testEnv });
+    const ed = verifyInitDataEd25519(initData, botId, { preferTestKey });
     if (!ed.ok) {
       return { ok: false, reason: ed.reason, meta };
     }
@@ -228,7 +245,7 @@ function verifyTelegramWebAppInitData(initData, botToken, { maxAgeSec = 86400 } 
       user,
       chat,
       params,
-      matched: { mode: "ed25519", botId, testEnv },
+      matched: { mode: "ed25519", botId, ed25519TestKey: ed.ed25519TestKey },
       meta,
     };
   }

@@ -161,7 +161,7 @@ const FRIENDLY_REASONS = {
   bad_hash:
     "Застаріла або неправильна перевірка HMAC. Якщо це повторюється — оновіть застосунок на сервері; актуальні клієнти використовують поле signature (Ed25519).",
   bad_signature:
-    "Підпис Ed25519 (поле signature) не збігся. Перевірте середовище: для тестового Telegram задайте TELEGRAM_MINIAPP_TEST_ENV=true в Render.",
+    "Підпис Ed25519 не збігся з жодним офіційним ключем Telegram. Якщо TELEGRAM_MINIAPP_TEST_ENV=true на Render, використовуйте лише разом із офіційним test-оточенням Telegram; для звичайного Telegram (учні, продакшен) цю змінну має бути вимкнено або false.",
   bad_signature_format: "Поле signature пошкоджене. Закрийте й відкрийте Mini App знову.",
   no_signature: "Внутрішня помилка перевірки signature.",
   no_auth_date: "У даних Telegram відсутня auth_date.",
