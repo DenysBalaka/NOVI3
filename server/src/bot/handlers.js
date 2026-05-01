@@ -393,8 +393,6 @@ async function finishTest(ctx, session) {
     if (teacherChatId) {
       const pts = safePointsNumber(score.earnedPoints);
       const maxPts = safePointsNumber(score.maxPoints);
-      const remind =
-        `\n\n📌 Нагадування для учнів: тест зараховується лише за умови відповіді на всі питання.`;
       let msg;
       if (score.hasTextQuestions) {
         msg =
@@ -402,16 +400,14 @@ async function finishTest(ctx, session) {
           `Учень: ${session.studentName || "—"}\n` +
           `Тест: ${originalTest?.title || "—"}\n\n` +
           `⚠️ Потрібна перевірка вчителя: є відкриті (текстові) відповіді.\n` +
-          `Попередній підрахунок балів (до перевірки тексту): ${pts} з ${maxPts} (${pct}%).` +
-          remind;
+          `Попередній підрахунок балів (до перевірки тексту): ${pts} з ${maxPts} (${pct}%).`;
       } else {
         msg =
           `✅ Учень пройшов тест\n\n` +
           `Учень: ${session.studentName || "—"}\n` +
           `Тест: ${originalTest?.title || "—"}\n` +
           `Бали: ${pts} з ${maxPts} (${pct}%)\n` +
-          `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}` +
-          remind;
+          `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}`;
       }
       await ctx.telegram.sendMessage(teacherChatId, msg);
     }
