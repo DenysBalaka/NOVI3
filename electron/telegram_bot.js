@@ -371,7 +371,7 @@ async function showTestPicker(ctx, paths) {
 
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   await ctx.reply(
-    "Оберіть тест:",
+    "Оберіть Тест який ви бажаєте пройти, нижче наведено список доступних Тестів:",
     Markup.inlineKeyboard(rows)
   );
   await sendMenuButtonKeyboard(ctx);

@@ -647,14 +647,14 @@ async function showTestPicker(ctx) {
   let rows;
   let intro;
   if (publicBase && botToken) {
-    intro = "Оберіть тест — відкриється вікно Telegram (Mini App):";
+    intro = "Оберіть Тест який ви бажаєте пройти, нижче наведено список доступних Тестів:";
     rows = list.map((t) => {
       const nav = signOpenTestNavToken(botToken, t.id);
       const url = `${publicBase}/telegram-app?t=${encodeURIComponent(nav)}`;
       return [Markup.button.webApp(truncate(t.title, 50), url)];
     });
   } else {
-    intro = "Оберіть тест:";
+    intro = "Оберіть Тест який ви бажаєте пройти, нижче наведено список доступних Тестів:";
     rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   }
   await ctx.reply(intro, Markup.inlineKeyboard(rows));
