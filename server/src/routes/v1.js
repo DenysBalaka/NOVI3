@@ -104,8 +104,10 @@ router.post("/roster/sync", async (req, res) => {
   }
   const client = await pool.connect();
   const roster = {};
+  let txStarted = false;
   try {
     await client.query("BEGIN");
+    txStarted = true;
     for (let ci = 0; ci < classList.length; ci++) {
       const c = classList[ci];
       const cname = (c && c.name) != null ? String(c.name).trim() : "";
@@ -135,9 +137,16 @@ router.post("/roster/sync", async (req, res) => {
       }
     }
     await client.query("COMMIT");
+    txStarted = false;
     res.json({ roster });
   } catch (e) {
-    await client.query("ROLLBACK");
+    if (txStarted) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rb) {
+        console.error("roster/sync ROLLBACK:", rb);
+      }
+    }
     console.error(e);
     res.status(500).json({ error: "Помилка синхронізації класів" });
   } finally {

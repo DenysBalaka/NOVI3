@@ -13,22 +13,33 @@ const { createSessionFromAccessRow, buildQuestionView, advanceWithAnswer } = req
 const router = express.Router();
 router.use(express.json({ limit: "25mb" }));
 
+/** У продакені /ping та /whoami вимкнені, доки не задано TELEGRAM_DIAG_SECRET і заголовок X-Telegram-Diag-Secret. */
+function diagAllowed(req) {
+  if (process.env.NODE_ENV !== "production") return true;
+  const secret = String(process.env.TELEGRAM_DIAG_SECRET || "").trim();
+  if (!secret) return false;
+  const h = req.headers["x-telegram-diag-secret"] || req.headers["x-diag-secret"];
+  return String(h || "").trim() === secret;
+}
+
 // Тех-діагностика: бачимо в логах, чи Mini App взагалі стукає в бекенд.
 router.use((req, _res, next) => {
   console.log("[telegram-webapp]", req.method, req.path);
   next();
 });
 
-router.get("/ping", (_req, res) =>
+router.get("/ping", (req, res) => {
+  if (!diagAllowed(req)) return res.status(404).end();
   res.json({
     ok: true,
     ts: new Date().toISOString(),
     hasBotToken: Boolean(normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN)),
-  })
-);
+  });
+});
 
 /** Хто такий бот, що стоїть за TELEGRAM_BOT_TOKEN. Корисно, коли user бачить «Невірні дані» — швидко перевіряєш bot mismatch. */
-router.get("/whoami", async (_req, res) => {
+router.get("/whoami", async (req, res) => {
+  if (!diagAllowed(req)) return res.status(404).end();
   const token = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
   if (!token) return res.status(503).json({ ok: false, error: "TELEGRAM_BOT_TOKEN не налаштовано" });
   try {
