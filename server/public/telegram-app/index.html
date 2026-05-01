@@ -25,7 +25,25 @@
             <div class="brand__sub" id="topbar-sub">Тестування</div>
           </div>
         </div>
-        <div class="topbar__meta" id="topbar-meta"></div>
+        <div class="topbar__right">
+          <div class="window-controls hidden" id="window-controls" aria-label="Вікно тесту">
+            <button type="button" class="win-btn" id="btn-win-expand" title="Більше місця / повний екран">
+              <span class="win-btn__ic" aria-hidden="true">⛶</span>
+            </button>
+            <button type="button" class="win-btn" id="btn-win-shrink" title="Компактніший вигляд">
+              <span class="win-btn__ic" aria-hidden="true">⬔</span>
+            </button>
+            <button
+              type="button"
+              class="win-btn win-btn--danger"
+              id="btn-win-abandon"
+              title="Закрити й скасувати спробу"
+            >
+              <span class="win-btn__ic" aria-hidden="true">✕</span>
+            </button>
+          </div>
+          <div class="topbar__meta" id="topbar-meta"></div>
+        </div>
       </header>
 
       <main class="content">

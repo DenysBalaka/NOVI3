@@ -274,4 +274,33 @@ router.post("/answer", async (req, res) => {
   }
 });
 
+/** Скасування незавершеної спроби: видаляє серверну сесію без збереження attempt у БД. */
+router.post("/abandon", async (req, res) => {
+  try {
+    const { initData, sessionId } = req.body || {};
+    const client = verifyClient(initData);
+    if (!client.ok) return sendVerifyError(res, client);
+
+    const sid = sessionId != null ? String(sessionId).trim() : "";
+    if (!sid) {
+      return res.json({ ok: true, reason: "no_session_id" });
+    }
+
+    const session = sessions.get(sid);
+    if (!session) {
+      return res.json({ ok: true, reason: "already_gone" });
+    }
+    if (String(session.telegramUserId) !== String(client.telegramUserId)) {
+      return res.status(403).json({ error: "Чужа сесія", reason: "session_mismatch" });
+    }
+
+    sessions.remove(sid);
+    console.log("[telegram-webapp] session abandoned", sid.slice(0, 8));
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("[telegram-webapp/abandon]", e);
+    return res.status(500).json({ error: "Помилка сервера", reason: "server_error" });
+  }
+});
+
 module.exports = router;

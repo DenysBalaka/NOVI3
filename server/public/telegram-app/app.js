@@ -27,6 +27,10 @@
     topbarTitle: $("topbar-title"),
     topbarSub: $("topbar-sub"),
     topbarMeta: $("topbar-meta"),
+    windowControls: $("window-controls"),
+    btnWinExpand: $("btn-win-expand"),
+    btnWinShrink: $("btn-win-shrink"),
+    btnWinAbandon: $("btn-win-abandon"),
   };
 
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -39,6 +43,12 @@
   let selectedRadio = null;
   /** @type {(() => void)|null} */
   let lastStartFn = null;
+  /** @type {'loading'|'error'|'quiz'|'done'} */
+  let currentScreen = "loading";
+  /** Тест успішно завершено — не скасовувати сесію при закритті. */
+  let testCompleted = false;
+  /** Щоб не дублювати abandon. */
+  let abandonSent = false;
 
   const TYPE_LABELS = {
     radio: "Один варіант",
@@ -47,15 +57,26 @@
     matching: "Відповідність",
   };
 
+  const ABANDON_MSG =
+    "Закрити тест? Незавершену спробу буде скасовано — результат у журнал не потрапить.";
+
   function show(name) {
+    currentScreen = name;
     Object.values(screens).forEach((s) => s.classList.add("hidden"));
     screens[name].classList.remove("hidden");
     if (name !== "quiz") {
       hideMainButton();
     }
+    updateWindowToolbar();
   }
 
-  /** Максимальна висота вікна Web App + повноекран (Bot API 8.0+, залежить від клієнта). */
+  function markTestFinished() {
+    testCompleted = true;
+    sessionId = null;
+    updateWindowToolbar();
+  }
+
+  /** Розгорнути вікно Mini App у межах Telegram (без примусового повноекрана). */
   function expandWebApp() {
     if (!tg) return;
     try {
@@ -63,13 +84,137 @@
     } catch {
       // ignore
     }
+  }
+
+  function buildAbandonPayload() {
+    if (!sessionId || !tg || !tg.initData) return null;
+    return JSON.stringify({ initData: tg.initData, sessionId });
+  }
+
+  function abandonBeacon() {
+    if (abandonSent || testCompleted) return;
+    const body = buildAbandonPayload();
+    if (!body) return;
+    abandonSent = true;
+    const url = new URL("/api/v1/telegram-webapp/abandon", window.location.origin).href;
+    try {
+      const blob = new Blob([body], { type: "application/json" });
+      if (navigator.sendBeacon && navigator.sendBeacon(url, blob)) {
+        return;
+      }
+    } catch {
+      // fall through
+    }
+    try {
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  async function abandonSync() {
+    const body = buildAbandonPayload();
+    if (!body) return;
+    const url = new URL("/api/v1/telegram-webapp/abandon", window.location.origin).href;
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      void r.json().catch(() => {});
+    } catch {
+      // ignore
+    }
+    abandonSent = true;
+  }
+
+  function confirmAbandonAndClose() {
+    const run = () => {
+      void abandonSync().finally(() => {
+        testCompleted = true;
+        sessionId = null;
+        if (tg && tg.close) tg.close();
+      });
+    };
+
+    if (tg && typeof tg.showConfirm === "function") {
+      try {
+        tg.showConfirm(ABANDON_MSG, (ok) => {
+          if (ok) run();
+        });
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    if (window.confirm(ABANDON_MSG)) run();
+  }
+
+  function updateWindowToolbar() {
+    const wc = els.windowControls;
+    if (!wc) return;
+    const midTest =
+      sessionId != null &&
+      !testCompleted &&
+      (currentScreen === "quiz" || currentScreen === "loading" || currentScreen === "error");
+    wc.classList.toggle("hidden", !midTest || !tg);
+    if (midTest && tg) {
+      syncWinButtonsState();
+    }
+  }
+
+  function syncWinButtonsState() {
+    const ex = els.btnWinExpand;
+    const sh = els.btnWinShrink;
+    if (!ex || !sh) return;
+    const hasFsIn = typeof tg?.requestFullscreen === "function";
+    const hasFsOut = typeof tg?.exitFullscreen === "function";
+    const fs = tg && tg.isFullscreen === true;
+    ex.classList.toggle("hidden", !hasFsIn || fs);
+    sh.classList.toggle("hidden", !(hasFsOut && fs));
+    if (!hasFsIn && !hasFsOut) {
+      ex.classList.remove("hidden");
+      sh.classList.add("hidden");
+      ex.title = "Розгорнути вікно в Telegram";
+      return;
+    }
+    ex.title = "Більше місця (повний екран Web App, якщо підтримується)";
+    sh.title = "Вийти з повного екрана";
+  }
+
+  function winExpand() {
+    if (!tg) return;
+    expandWebApp();
     try {
       if (typeof tg.requestFullscreen === "function") {
         tg.requestFullscreen();
       }
     } catch {
-      // ignore — не всі збірки Desktop/Android підтримують
+      // ignore
     }
+    setTimeout(syncWinButtonsState, 400);
+  }
+
+  function winShrink() {
+    if (!tg) return;
+    if (tg.isFullscreen === true && typeof tg.exitFullscreen === "function") {
+      try {
+        tg.exitFullscreen();
+      } catch {
+        // ignore
+      }
+      setTimeout(syncWinButtonsState, 400);
+      return;
+    }
+    alertUser(
+      "Стисніть вікно, потягнувши за край у Telegram Desktop, або вийдіть з повного екрана кнопкою «Компактніший вигляд», якщо вона активна."
+    );
   }
 
   function syncMainButtonStyle() {
@@ -455,6 +600,7 @@
       const data = await api("/answer", { initData: tg.initData, sessionId, answer });
       if (data.done && data.result) {
         haptic("success");
+        markTestFinished();
         els.doneMessage.textContent = data.result.message || "";
         show("done");
         expandWebApp();
@@ -470,12 +616,17 @@
 
   function showDoneFromStart(result) {
     haptic("success");
+    markTestFinished();
     els.doneMessage.textContent = (result && result.message) || "Тест завершено.";
     show("done");
   }
 
   async function start() {
     lastStartFn = start;
+    testCompleted = false;
+    abandonSent = false;
+    sessionId = null;
+
     const token = getNavToken();
     if (!token) {
       showError({
@@ -508,6 +659,7 @@
         return;
       }
       sessionId = data.sessionId;
+      abandonSent = false;
       show("quiz");
       renderView(data.view);
     } catch (e) {
@@ -531,6 +683,16 @@
     if (lastStartFn) void lastStartFn();
   });
 
+  if (els.btnWinExpand) els.btnWinExpand.addEventListener("click", () => winExpand());
+  if (els.btnWinShrink) els.btnWinShrink.addEventListener("click", () => winShrink());
+  if (els.btnWinAbandon) els.btnWinAbandon.addEventListener("click", () => confirmAbandonAndClose());
+
+  window.addEventListener("pagehide", () => {
+    if (!testCompleted && sessionId && tg && tg.initData) {
+      abandonBeacon();
+    }
+  });
+
   if (tg) {
     try {
       tg.ready();
@@ -541,6 +703,11 @@
     applyTheme();
     if (tg.onEvent) {
       tg.onEvent("themeChanged", applyTheme);
+      try {
+        tg.onEvent("fullscreenChanged", syncWinButtonsState);
+      } catch {
+        // ignore
+      }
     }
   }
 
