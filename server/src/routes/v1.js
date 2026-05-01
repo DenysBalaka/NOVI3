@@ -464,6 +464,86 @@ router.patch("/students/:id/telegram", async (req, res) => {
   }
 });
 
+/** DELETE учень (для керування roster; каскадно прибере invites/assignments; attempts.student_id стане NULL) */
+router.delete("/students/:id", async (req, res) => {
+  const tid = req.teacher.id;
+  const studentId = req.params.id;
+  try {
+    const r = await pool.query(
+      `DELETE FROM students s
+       USING classes c
+       WHERE s.id = $1::uuid AND s.class_id = c.id AND c.teacher_id = $2::uuid
+       RETURNING s.id`,
+      [studentId, tid]
+    );
+    if (r.rows.length === 0) res.status(404).json({ error: "Не знайдено" });
+    else res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Помилка видалення" });
+  }
+});
+
+/** POST /api/v1/telegram/resolve — отримати (id, username) за id або @username */
+router.post("/telegram/resolve", async (req, res) => {
+  const tid = req.teacher.id;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const { telegramUserId, telegramUsername } = req.body || {};
+
+  const tgIdRaw =
+    telegramUserId != null && String(telegramUserId).trim() !== ""
+      ? String(telegramUserId).trim().replace(/[^\d]/g, "")
+      : "";
+  const tgUserRaw =
+    telegramUsername != null && String(telegramUsername).trim() !== ""
+      ? String(telegramUsername).trim().replace(/^@/, "")
+      : "";
+
+  if (!tgIdRaw && !tgUserRaw) {
+    res.status(400).json({ error: "Потрібен telegramUserId або telegramUsername" });
+    return;
+  }
+  if (!token) {
+    res.status(503).json({ error: "TELEGRAM_BOT_TOKEN не налаштовано на сервері" });
+    return;
+  }
+
+  const chatId = tgIdRaw ? tgIdRaw : `@${tgUserRaw}`;
+  const url = `https://api.telegram.org/bot${token}/getChat`;
+  try {
+    const tgRes = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    const data = await tgRes.json();
+    if (!data.ok) {
+      console.error("op failed", {
+        op: "telegram.resolve.getChat",
+        teacherId: tid,
+        chatIdKind: tgIdRaw ? "id" : "username",
+        err: { message: data?.description || "Telegram API error" },
+      });
+      res.status(404).json({ error: "Не вдалося знайти користувача в Telegram" });
+      return;
+    }
+    const result = data.result || {};
+    const out = {
+      telegramUserId: result.id != null ? String(result.id) : null,
+      telegramUsername: result.username != null ? String(result.username) : null,
+    };
+    res.json(out);
+  } catch (e) {
+    console.error("op failed", {
+      op: "telegram.resolve.getChat",
+      teacherId: tid,
+      chatIdKind: tgIdRaw ? "id" : "username",
+      err: { name: e?.name, message: e?.message, stack: e?.stack },
+    });
+    res.status(500).json({ error: "Помилка звернення до Telegram" });
+  }
+});
+
 /**
  * Прибирає застарілий блок деталізації оцінок за текстові питання (не показуємо учню в Telegram).
  * Підтримує старі клієнти, що ще додають цей фрагмент до message.

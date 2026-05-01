@@ -440,7 +440,6 @@ async function openStudentProfileDialog({ className, index }) {
   const gender = profile.gender || "";
   const hobbies = profile.hobbies || "";
   const phone = profile.phone || "";
-  const username = profile.username || "";
   const parents = (profile.parents && typeof profile.parents === "object") ? profile.parents : {};
   const motherName = parents.motherName || "";
   const fatherName = parents.fatherName || "";
@@ -506,10 +505,6 @@ async function openStudentProfileDialog({ className, index }) {
       </div>
       <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group" style="min-width:0;">
-          <label>Username (локально)</label>
-          <input type="text" class="input" id="student-username" value="${window.esc(username)}" placeholder="наприклад, логін">
-        </div>
-        <div class="form-group" style="min-width:0;">
           <label>Телефон батьків</label>
           <input type="text" class="input" id="parents-phone" value="${window.esc(parentsPhone)}" placeholder="+380...">
         </div>
@@ -543,6 +538,23 @@ async function openStudentProfileDialog({ className, index }) {
           <input type="text" class="input" id="tg-user" value="${window.esc(tgUser ? "@" + tgUser : "")}" readonly style="opacity:0.8;">
         </div>
       </div>
+      <div style="margin-top:10px;padding:10px;border:1px dashed var(--border-color);border-radius:10px;">
+        <div style="font-weight:700;margin-bottom:6px;">Прив’язати вручну</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
+          Введіть <b>Telegram ID</b> (число) або <b>@username</b> — система сама підтягне друге поле і збереже прив’язку.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group" style="min-width:0;">
+            <label>Ввести Telegram ID</label>
+            <input type="text" class="input" id="tg-manual-id" placeholder="наприклад 123456789" inputmode="numeric">
+          </div>
+          <div class="form-group" style="min-width:0;">
+            <label>Ввести @username</label>
+            <input type="text" class="input" id="tg-manual-user" placeholder="@username">
+          </div>
+        </div>
+        <div id="tg-link-feedback" style="font-size:12px;color:var(--muted);min-height:1.2em;margin-top:6px;"></div>
+      </div>
       <div style="margin-top:10px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
         <button class="btn danger" id="tg-unlink" ${tgStudentId && tgLinked ? "" : "disabled"}>Відв’язати від бота</button>
       </div>
@@ -550,7 +562,9 @@ async function openStudentProfileDialog({ className, index }) {
     </div>
 
     <div class="modal-actions" style="margin-top:16px;">
-      <button class="btn danger" id="student-cancel">Скасувати</button>
+      <button class="btn danger" id="student-delete">Видалити учня</button>
+      <div style="flex:1"></div>
+      <button class="btn ghost" id="student-cancel">Скасувати</button>
       <button class="btn" id="student-save">Зберегти</button>
     </div>
   `;
@@ -567,6 +581,106 @@ async function openStudentProfileDialog({ className, index }) {
   const hobbiesCountEl = window.$("#student-hobbies-count", overlay);
   const unlinkBtn = window.$("#tg-unlink", overlay);
   const unlinkFb = window.$("#tg-unlink-feedback", overlay);
+  const linkFb = window.$("#tg-link-feedback", overlay);
+  const delBtn = window.$("#student-delete", overlay);
+  const manualIdEl = window.$("#tg-manual-id", overlay);
+  const manualUserEl = window.$("#tg-manual-user", overlay);
+
+  let isAutoResolvingTg = false;
+  let lastAutoLinkedKey = "";
+  let tgResolveTimer = null;
+  const ensureCloudStudentId = async () => {
+    if (tgStudentId) return tgStudentId;
+    // Спробуємо знайти UUID в хмарі через roster (клас + ПІБ)
+    const rosterByClass = await getTelegramRosterByClassNameCached();
+    const map = rosterByClass && rosterByClass[className] ? rosterByClass[className] : null;
+    const info = map ? map[st.fullName] : null;
+    const sid = info && info.id ? String(info.id) : "";
+    return sid || "";
+  };
+
+  const scheduleResolveAndLink = (kind) => {
+    if (!window.isTeacherCloudConnected || !window.isTeacherCloudConnected()) return;
+    if (tgResolveTimer) clearTimeout(tgResolveTimer);
+    tgResolveTimer = setTimeout(async () => {
+      if (isAutoResolvingTg) return;
+      const idRaw = (manualIdEl?.value || "").trim();
+      const userRaw = (manualUserEl?.value || "").trim();
+      const telegramUserId = idRaw ? String(idRaw).replace(/[^\d]/g, "") : "";
+      const telegramUsername = userRaw ? String(userRaw).replace(/^@/, "").trim() : "";
+      if (kind === "id" && !telegramUserId) return;
+      if (kind === "user" && !telegramUsername) return;
+
+      isAutoResolvingTg = true;
+      try {
+        if (linkFb) {
+          linkFb.textContent = "Пошук Telegram…";
+          linkFb.style.color = "var(--muted)";
+        }
+
+        let resolvedId = telegramUserId;
+        let resolvedUser = telegramUsername;
+
+        // 1) Спробувати розв’язати друге поле через Telegram, якщо не введене.
+        if (!resolvedId || !resolvedUser) {
+          try {
+            const data = await window.callCloudApi("POST", "telegram/resolve", {
+              telegramUserId: resolvedId || null,
+              telegramUsername: resolvedUser || null,
+            });
+            resolvedId = data && data.telegramUserId != null ? String(data.telegramUserId).trim() : resolvedId;
+            resolvedUser = data && data.telegramUsername != null ? String(data.telegramUsername).trim() : resolvedUser;
+          } catch (_) {
+            // Telegram resolve може не спрацювати (приватність/неіснує/бот не має доступу).
+            // Це не блокує ручне збереження того, що ввів вчитель.
+          }
+        }
+
+        // 2) Автозаповнення полів (нормалізація).
+        if (resolvedId && manualIdEl) manualIdEl.value = String(resolvedId);
+        if (resolvedUser && manualUserEl) manualUserEl.value = "@" + String(resolvedUser).replace(/^@/, "");
+
+        // 3) Автозбереження прив’язки (щоб не було кнопки).
+        if (!resolvedId && !resolvedUser) return;
+        const key = `${resolvedId || ""}|${resolvedUser || ""}`;
+        if (key && key === lastAutoLinkedKey) return;
+        // не ставимо lastAutoLinkedKey до успішного збереження, щоб після помилки можна було повторити
+
+        const sid = await ensureCloudStudentId();
+        if (!sid) {
+          if (linkFb) {
+            linkFb.textContent = "Немає UUID учня в хмарі. Спочатку синхронізуйте класи з хмарою (Тести → Telegram → «Синхронізувати класи»).";
+            linkFb.style.color = "var(--danger)";
+          }
+          return;
+        }
+
+        if (linkFb) {
+          linkFb.textContent = "Збереження прив’язки…";
+          linkFb.style.color = "var(--muted)";
+        }
+        await window.callCloudApi("PATCH", `students/${encodeURIComponent(sid)}/telegram`, {
+          telegramUserId: resolvedId || null,
+          telegramUsername: resolvedUser || null,
+        });
+        lastAutoLinkedKey = key;
+        telegramRosterCache.at = 0;
+        if (linkFb) {
+          linkFb.textContent = "Прив’язку збережено.";
+          linkFb.style.color = "var(--grade-10)";
+        }
+        renderStudentsListView(window.state.students[className] || [], className);
+      } catch (e) {
+        const msg = (e && e.message ? String(e.message) : "") || "Не вдалося зберегти прив’язку.";
+        if (linkFb) {
+          linkFb.textContent = msg;
+          linkFb.style.color = "var(--danger)";
+        }
+      } finally {
+        isAutoResolvingTg = false;
+      }
+    }, 450);
+  };
 
   const close = () => closeStudentProfileDialog();
   if (closeBtn) closeBtn.onclick = close;
@@ -622,12 +736,57 @@ async function openStudentProfileDialog({ className, index }) {
     };
   }
 
+  if (manualIdEl) {
+    manualIdEl.addEventListener("input", () => scheduleResolveAndLink("id"));
+  }
+  if (manualUserEl) {
+    manualUserEl.addEventListener("input", () => scheduleResolveAndLink("user"));
+  }
+
+  if (delBtn) {
+    delBtn.onclick = async () => {
+      const title = "Видалити учня";
+      const confirmMessage =
+        `Ви впевнені, що хочете видалити учня «${st.fullName}»?\n\n` +
+        `Цю дію неможливо скасувати.`;
+      const ok = await window.showCustomConfirm(title, confirmMessage, "Видалити", "Скасувати", true);
+      if (!ok) return;
+
+      const classArr = window.state.students && window.state.students[className] ? window.state.students[className] : [];
+      classArr.splice(index, 1);
+      try {
+        await window.saveStudentsSync();
+      } catch (e) {
+        console.error("Failed to save students after delete:", e);
+        await window.showCustomAlert("Помилка", "Не вдалося зберегти зміни після видалення учня.");
+        return;
+      }
+
+      // Якщо є хмара і UUID учня — видаляємо і там (краще-ніж-нічого).
+      if (tgStudentId && window.isTeacherCloudConnected && window.isTeacherCloudConnected()) {
+        try {
+          await window.callCloudApi("DELETE", `students/${encodeURIComponent(tgStudentId)}`);
+          telegramRosterCache.at = 0;
+        } catch (e) {
+          console.error("Cloud delete student failed:", e);
+          // Локально вже видалено; просто попередимо.
+          await window.showCustomAlert(
+            "Увага",
+            "Локально учня видалено, але не вдалося видалити його в хмарі. Спробуйте ще раз після підключення/перевірки хмари."
+          );
+        }
+      }
+
+      renderStudentsListView(window.state.students[className] || [], className);
+      close();
+    };
+  }
+
   if (saveBtn) {
     saveBtn.onclick = async () => {
       const newBirth = (window.$("#student-birthdate", overlay)?.value || "").trim();
       const newGender = (window.$("#student-gender", overlay)?.value || "").trim();
       const newPhone = (window.$("#student-phone", overlay)?.value || "").trim();
-      const newUsername = (window.$("#student-username", overlay)?.value || "").trim();
       const newHobbies = (window.$("#student-hobbies", overlay)?.value || "").trim().slice(0, 100);
       const newMother = (window.$("#mother-name", overlay)?.value || "").trim();
       const newFather = (window.$("#father-name", overlay)?.value || "").trim();
@@ -642,7 +801,6 @@ async function openStudentProfileDialog({ className, index }) {
           gender: newGender || "",
           hobbies: newHobbies || "",
           phone: newPhone || "",
-          username: newUsername || "",
           parents: {
             ...(parents && typeof parents === "object" ? parents : {}),
             motherName: newMother || "",
