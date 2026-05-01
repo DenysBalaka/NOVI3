@@ -106,7 +106,8 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   padding: 0 14px calc(14px + env(safe-area-inset-bottom, 0));
-  max-width: 640px;
+  max-width: none;
+  width: 100%;
   margin: 0 auto;
 }
 
@@ -644,17 +645,6 @@ body {
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.35;
-}
-
-/* ========== Footer / submit ========== */
-.footer {
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 12px 0 max(12px, env(safe-area-inset-bottom, 12px));
-  background: linear-gradient(180deg, transparent, var(--bg) 30%);
-  z-index: 4;
 }
 
 /* ========== Done screen ========== */

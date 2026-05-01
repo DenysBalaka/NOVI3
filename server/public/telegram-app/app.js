@@ -15,8 +15,6 @@
     btnRetry: $("btn-retry"),
     btnCloseError: $("btn-close-error"),
     btnCloseApp: $("btn-close-app"),
-    btnSubmit: $("btn-submit"),
-    quizFoot: $("quiz-foot"),
     progressFill: $("progress-fill"),
     quizMetaQ: $("quiz-meta-question"),
     quizMetaType: $("quiz-meta-type"),
@@ -54,36 +52,47 @@
     screens[name].classList.remove("hidden");
     if (name !== "quiz") {
       hideMainButton();
-      els.quizFoot.classList.add("hidden");
     }
   }
 
-  function setSubmitVisible(visible) {
-    if (!visible) {
-      els.btnSubmit.classList.add("hidden");
-      els.quizFoot.classList.add("hidden");
-      hideMainButton();
-      return;
-    }
-    els.btnSubmit.classList.remove("hidden");
-    els.quizFoot.classList.remove("hidden");
-  }
-
-  function applyTheme() {
-    if (!tg || !tg.themeParams) return;
-    // Зберігаємо темну палітру TeacherJournal — лише ставимо Telegram-кольори системного chrome.
+  /** Максимальна висота вікна Web App + повноекран (Bot API 8.0+, залежить від клієнта). */
+  function expandWebApp() {
+    if (!tg) return;
     try {
-      tg.setHeaderColor("secondary_bg_color");
-      tg.setBackgroundColor("#0f0f11");
+      tg.expand();
     } catch {
-      // ignore — старі версії клієнта
+      // ignore
+    }
+    try {
+      if (typeof tg.requestFullscreen === "function") {
+        tg.requestFullscreen();
+      }
+    } catch {
+      // ignore — не всі збірки Desktop/Android підтримують
+    }
+  }
+
+  function syncMainButtonStyle() {
+    if (!tg || !tg.MainButton || typeof tg.MainButton.setParams !== "function") return;
+    try {
+      tg.MainButton.setParams({
+        color: "#6366f1",
+        text_color: "#ffffff",
+      });
+    } catch {
+      // ignore
     }
   }
 
   function setMainButton(text, onClick) {
     if (!tg || !tg.MainButton) return false;
     try {
+      if (tg.MainButton.__handler) {
+        tg.MainButton.offClick(tg.MainButton.__handler);
+        tg.MainButton.__handler = null;
+      }
       tg.MainButton.setText(text);
+      syncMainButtonStyle();
       tg.MainButton.show();
       tg.MainButton.enable();
       tg.MainButton.onClick(onClick);
@@ -97,11 +106,23 @@
   function hideMainButton() {
     if (!tg || !tg.MainButton) return;
     try {
-      if (tg.MainButton.__handler) tg.MainButton.offClick(tg.MainButton.__handler);
-      tg.MainButton.__handler = null;
+      if (tg.MainButton.__handler) {
+        tg.MainButton.offClick(tg.MainButton.__handler);
+        tg.MainButton.__handler = null;
+      }
       tg.MainButton.hide();
     } catch {
       // ignore
+    }
+  }
+
+  function applyTheme() {
+    if (!tg || !tg.themeParams) return;
+    try {
+      tg.setHeaderColor("secondary_bg_color");
+      tg.setBackgroundColor("#0f0f11");
+    } catch {
+      // ignore — старі версії клієнта
     }
   }
 
@@ -177,7 +198,7 @@
 
   function clearQuizBody() {
     els.qBody.innerHTML = "";
-    setSubmitVisible(false);
+    hideMainButton();
     selectedCheck = new Set();
     selectedRadio = null;
     els.qHint.classList.add("hidden");
@@ -208,22 +229,16 @@
       els.qBody.appendChild(b);
       buttons.push(b);
     });
-    setSubmitVisible(true);
-    els.btnSubmit.textContent = "Надіслати відповідь";
-    els.btnSubmit.onclick = () => {
+    const submit = () => {
       if (selectedRadio == null) {
         alertUser("Оберіть варіант, щоб продовжити.");
         return;
       }
       void postAnswer({ index: selectedRadio });
     };
-    setMainButton("Надіслати", () => {
-      if (selectedRadio == null) {
-        alertUser("Оберіть варіант, щоб продовжити.");
-        return;
-      }
-      void postAnswer({ index: selectedRadio });
-    });
+    if (!setMainButton("Надіслати відповідь", submit)) {
+      alertUser("Немає кнопки надсилання (відкрийте через Telegram Mini App).");
+    }
   }
 
   function checkmarkSvg() {
@@ -287,8 +302,6 @@
       els.qBody.appendChild(row);
     });
 
-    setSubmitVisible(true);
-    els.btnSubmit.textContent = "Надіслати відповідь";
     const submit = () => {
       const indices = [...selectedCheck].sort((a, b) => a - b);
       if (indices.length === 0) {
@@ -297,8 +310,9 @@
       }
       void postAnswer({ indices });
     };
-    els.btnSubmit.onclick = submit;
-    setMainButton("Надіслати", submit);
+    if (!setMainButton("Надіслати відповідь", submit)) {
+      alertUser("Немає кнопки надсилання (відкрийте через Telegram Mini App).");
+    }
   }
 
   function renderText() {
@@ -312,8 +326,6 @@
     els.qBody.appendChild(ta);
     setTimeout(() => ta.focus(), 50);
 
-    setSubmitVisible(true);
-    els.btnSubmit.textContent = "Надіслати відповідь";
     const submit = () => {
       const raw = String(ta.value || "").trim();
       if (!raw) {
@@ -322,8 +334,9 @@
       }
       void postAnswer({ text: raw });
     };
-    els.btnSubmit.onclick = submit;
-    setMainButton("Надіслати", submit);
+    if (!setMainButton("Надіслати відповідь", submit)) {
+      alertUser("Немає кнопки надсилання (відкрийте через Telegram Mini App).");
+    }
   }
 
   function renderMatching(view) {
@@ -364,8 +377,6 @@
       buttons.push(b);
     });
 
-    setSubmitVisible(true);
-    els.btnSubmit.textContent = "Підтвердити";
     const submit = () => {
       if (chosenIdx == null) {
         alertUser("Оберіть відповідність праворуч.");
@@ -373,8 +384,9 @@
       }
       void postAnswer({ index: chosenIdx });
     };
-    els.btnSubmit.onclick = submit;
-    setMainButton("Підтвердити", submit);
+    if (!setMainButton("Підтвердити", submit)) {
+      alertUser("Немає кнопки надсилання (відкрийте через Telegram Mini App).");
+    }
   }
 
   function renderView(view) {
@@ -393,11 +405,10 @@
 
     els.qHint.textContent = "Невідомий тип питання — пропускаємо.";
     els.qHint.classList.remove("hidden");
-    setSubmitVisible(true);
-    els.btnSubmit.textContent = "Далі";
     const submit = () => void postAnswer({});
-    els.btnSubmit.onclick = submit;
-    setMainButton("Далі", submit);
+    if (!setMainButton("Далі", submit)) {
+      alertUser("Немає кнопки надсилання (відкрийте через Telegram Mini App).");
+    }
   }
 
   function showError({ title, message, detail, retry }) {
@@ -446,7 +457,7 @@
         haptic("success");
         els.doneMessage.textContent = data.result.message || "";
         show("done");
-        if (tg && tg.expand) tg.expand();
+        expandWebApp();
         return;
       }
       show("quiz");
@@ -523,7 +534,7 @@
   if (tg) {
     try {
       tg.ready();
-      tg.expand();
+      expandWebApp();
     } catch {
       // ignore
     }
