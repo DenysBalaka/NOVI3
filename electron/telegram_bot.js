@@ -12,9 +12,14 @@ const sessions = new Map();
 
 /** Текст кнопки нижнього меню (reply keyboard) — повторний вибір тесту */
 const MENU_BTN_CHOOSE_TEST = "📋 Обрати тест";
+const TEST_PICKER_TOOLTIP_TEXT = "📌 Цей тест буде зараховано лише за умови відповіді на всі питання";
 
 function replyMainMenu() {
-  return Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
+  const kb = Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
+  if (typeof kb?.inputFieldPlaceholder === "function") {
+    return kb.inputFieldPlaceholder(TEST_PICKER_TOOLTIP_TEXT);
+  }
+  return kb;
 }
 
 /** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). Текст — невидимий символ. */
@@ -331,7 +336,7 @@ async function showTestPicker(ctx, paths) {
 
   const rows = list.map((t) => [Markup.button.callback(truncate(t.title, 50), `p:${t.id}`)]);
   await ctx.reply(
-    "Оберіть тест:\n\n" + "📌 Цей тест буде зараховано лише за умови відповіді на всі питання.",
+    "Оберіть тест:\n\n" + `${TEST_PICKER_TOOLTIP_TEXT}.`,
     Markup.inlineKeyboard(rows)
   );
   await sendMenuButtonKeyboard(ctx);

@@ -5,6 +5,7 @@ const { normalizeBotToken } = require("../telegramMiniApp/initData");
 const Q = require("./queries");
 
 const MENU_BTN_CHOOSE_TEST = "📋 Обрати тест";
+const TEST_PICKER_TOOLTIP_TEXT = "📌 Цей тест буде зараховано лише за умови відповіді на всі питання";
 const sessions = new Map();
 
 /** У групі ctx.chat.id — id чату (−100…), а не учня. Для БД і прив’язки потрібен id користувача (from.id). */
@@ -24,7 +25,12 @@ function sessionKey(ctx) {
 }
 
 function replyMainMenu() {
-  return Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
+  const kb = Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
+  // Підказка в полі введення (Telegram показує її як placeholder).
+  if (typeof kb?.inputFieldPlaceholder === "function") {
+    return kb.inputFieldPlaceholder(TEST_PICKER_TOOLTIP_TEXT);
+  }
+  return kb;
 }
 
 /** Окреме повідомлення лише з reply-клавіатурою (inline + reply в одному повідомленні в Telegram неможливі). Текст — невидимий символ. */
@@ -643,7 +649,7 @@ async function showTestPicker(ctx) {
   if (publicBase && botToken) {
     intro =
       "Оберіть тест — відкриється вікно Telegram (Mini App):\n\n" +
-      "📌 Цей тест буде зараховано лише за умови відповіді на всі питання.";
+      `${TEST_PICKER_TOOLTIP_TEXT}.`;
     rows = list.map((t) => {
       const nav = signOpenTestNavToken(botToken, t.id);
       const url = `${publicBase}/telegram-app?t=${encodeURIComponent(nav)}`;
