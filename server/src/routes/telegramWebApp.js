@@ -8,7 +8,12 @@ const {
   normalizeBotToken,
 } = require("../telegramMiniApp/initData");
 const sessions = require("../telegramMiniApp/sessions");
-const { createSessionFromAccessRow, buildQuestionView, advanceWithAnswer } = require("../telegramMiniApp/flow");
+const {
+  createSessionFromAccessRow,
+  createSessionFromInviteAccess,
+  buildQuestionView,
+  advanceWithAnswer,
+} = require("../telegramMiniApp/flow");
 
 const router = express.Router();
 router.use(express.json({ limit: "25mb" }));
@@ -137,6 +142,10 @@ async function finalizeSession(session) {
     telegramChatId: session.telegramChatId,
     cloudTestId: session.cloudTestId,
   };
+  if (session.guestAge != null) attemptPayload.guestAge = session.guestAge;
+  if (session.guestGrade != null && String(session.guestGrade).trim() !== "") {
+    attemptPayload.guestGrade = String(session.guestGrade).trim();
+  }
 
   await Q.insertAttempt({
     teacherId: session.teacherId,
@@ -248,10 +257,24 @@ router.post("/start", async (req, res) => {
     const nav = verifyOpenTestNavToken(botToken, token);
     if (!nav) return res.status(401).json({ error: "Посилання застаріло або пошкоджене", reason: "bad_nav_token" });
 
-    const row = await Q.validateTestAccess(client.telegramUserId, nav.testUuid);
+    let row = await Q.validateTestAccess(client.telegramUserId, nav.testUuid);
+    let inviteGuest = null;
+    if (!row && nav.inviteCode && nav.guestName) {
+      const invRow = await Q.validateOpenTestInvite(nav.inviteCode, nav.testUuid);
+      if (invRow) {
+        row = invRow;
+        inviteGuest = {
+          name: nav.guestName,
+          ...(nav.guestAge != null ? { age: nav.guestAge } : {}),
+          ...(nav.guestGrade != null ? { grade: nav.guestGrade } : {}),
+        };
+      }
+    }
     if (!row) return res.status(403).json({ error: "Тест недоступний для цього акаунту.", reason: "no_access" });
 
-    const built = createSessionFromAccessRow(row, client.telegramUserId, client.telegramChatId);
+    const built = inviteGuest
+      ? createSessionFromInviteAccess(row, inviteGuest, client.telegramUserId, client.telegramChatId)
+      : createSessionFromAccessRow(row, client.telegramUserId, client.telegramChatId);
     if (built.error) return res.status(400).json({ error: "Не вдалося відкрити тест", reason: built.error });
 
     const session = built.session;

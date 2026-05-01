@@ -574,6 +574,43 @@ async function startOpenInviteTest(ctx, s) {
   const name = s.guestFullName || ctx.from?.first_name || "Гість";
   const age = s.guestAge;
   const grade = s.guestGrade;
+  const inviteCode = s.inviteCode;
+
+  const publicBase = getTelegramWebAppPublicBase();
+  const botToken = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
+  if (publicBase && botToken) {
+    let nav;
+    try {
+      nav = signOpenTestNavToken(botToken, row.id, {
+        inviteCode,
+        guestName: name,
+        guestAge: age,
+        guestGrade: grade,
+      });
+    } catch (e) {
+      console.error("[startOpenInviteTest] nav token", e?.message || e);
+      nav = null;
+    }
+    if (nav) {
+      const url = `${publicBase}/telegram-app?t=${encodeURIComponent(nav)}`;
+      delete s.inviteCode;
+      delete s.inviteOpenTestId;
+      delete s.guestFullName;
+      delete s.guestAge;
+      delete s.guestGrade;
+      clearSession(sk);
+      await ctx.reply(
+        `Тест «${escHtml(row.title || "")}».\n\nНатисніть кнопку нижче, щоб пройти його у вікні <b>Web App</b>.`,
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([[Markup.button.webApp("Відкрити тест (Web App)", url)]]),
+        }
+      );
+      await sendMenuButtonKeyboard(ctx);
+      return;
+    }
+  }
+
   delete s.inviteCode;
   delete s.inviteOpenTestId;
   delete s.guestFullName;

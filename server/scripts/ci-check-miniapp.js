@@ -40,9 +40,22 @@ function main() {
   const tid = "d1ba56c9-63f8-4360-b728-7ea31503ccb1";
   const tok = signOpenTestNavToken(botToken, tid);
   const nav = verifyOpenTestNavToken(botToken, tok);
-  assert(nav && nav.testUuid === tid, "Токен навігації має верифікуватися");
+  assert(nav && nav.testUuid === tid && !nav.inviteCode, "Токен навігації v1 має верифікуватися");
 
   assert.strictEqual(verifyOpenTestNavToken(botToken, tok + "x"), null, "Битий токен має відхилятись");
+
+  const tokInv = signOpenTestNavToken(botToken, tid, {
+    inviteCode: "abc123xyz",
+    guestName: "Тест Учень",
+    guestAge: 14,
+    guestGrade: "9-А",
+  });
+  const navInv = verifyOpenTestNavToken(botToken, tokInv);
+  assert(navInv && navInv.testUuid === tid, "Токен v2: testUuid");
+  assert.strictEqual(navInv.inviteCode, "abc123xyz");
+  assert.strictEqual(navInv.guestName, "Тест Учень");
+  assert.strictEqual(navInv.guestAge, 14);
+  assert.strictEqual(navInv.guestGrade, "9-А");
 
   /** Приклад з офіційної доки: є `signature` → перевірка Ed25519 (не HMAC). */
   const ed25519Init =

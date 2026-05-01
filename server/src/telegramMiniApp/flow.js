@@ -100,6 +100,29 @@ function createSessionFromAccessRow(row, telegramUserId, telegramChatId) {
   return { session };
 }
 
+/**
+ * Рядок тесту з validateOpenTestInvite (без student_id / full_name) + дані гостя з підписаного токена.
+ * @param {{ id: string, external_id?: string, title?: string, payload_json: unknown, teacher_id: string }} row
+ * @param {{ name: string, age?: number, grade?: string }} guest
+ */
+function createSessionFromInviteAccess(row, guest, telegramUserId, telegramChatId) {
+  const synthetic = {
+    ...row,
+    student_id: null,
+    full_name: guest.name || "Гість",
+  };
+  const base = createSessionFromAccessRow(synthetic, telegramUserId, telegramChatId);
+  if (base.error || !base.session) return base;
+  const s = base.session;
+  if (guest.age != null && Number.isFinite(Number(guest.age))) {
+    s.guestAge = Number(guest.age);
+  }
+  if (guest.grade != null && String(guest.grade).trim() !== "") {
+    s.guestGrade = String(guest.grade).trim();
+  }
+  return { session: s };
+}
+
 function buildQuestionView(session) {
   const { test } = session;
   const total = test.questions.length;
@@ -237,6 +260,7 @@ function advanceWithAnswer(session, answer) {
 
 module.exports = {
   createSessionFromAccessRow,
+  createSessionFromInviteAccess,
   buildQuestionView,
   advanceWithAnswer,
   parseTestPayload,
