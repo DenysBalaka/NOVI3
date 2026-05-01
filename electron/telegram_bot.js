@@ -14,6 +14,8 @@ const sessions = new Map();
 const MENU_BTN_CHOOSE_TEST = "📋 Обрати тест";
 const TEST_PICKER_TOOLTIP_TEXT = "📌 Цей тест буде зараховано лише за умови відповіді на всі питання";
 
+const MAX_TRACKED_MESSAGE_IDS = 250;
+
 function replyMainMenu() {
   const kb = Markup.keyboard([[MENU_BTN_CHOOSE_TEST]]).resize();
   if (typeof kb?.inputFieldPlaceholder === "function") {
@@ -63,16 +65,49 @@ function publishedTests(paths) {
 }
 
 function getSession(chatId) {
-  if (!sessions.has(chatId)) sessions.set(chatId, { step: "idle" });
+  if (!sessions.has(chatId)) sessions.set(chatId, { step: "idle", messageIds: [] });
   return sessions.get(chatId);
 }
 
 function clearSession(chatId) {
-  sessions.set(chatId, { step: "idle" });
+  const prev = sessions.get(chatId);
+  sessions.set(chatId, { step: "idle", messageIds: Array.isArray(prev?.messageIds) ? prev.messageIds : [] });
 }
 
 function notify(win, kind) {
   if (win && !win.isDestroyed()) win.webContents.send("tj:data-changed", { kind });
+}
+
+function trackMessageId(session, messageId) {
+  if (!session || !Number.isInteger(messageId)) return;
+  if (!Array.isArray(session.messageIds)) session.messageIds = [];
+  session.messageIds.push(messageId);
+  if (session.messageIds.length > MAX_TRACKED_MESSAGE_IDS) {
+    session.messageIds.splice(0, session.messageIds.length - MAX_TRACKED_MESSAGE_IDS);
+  }
+}
+
+async function clearTrackedChatMessages(ctx, session) {
+  const chatId = ctx?.chat?.id;
+  if (!chatId || !session) return;
+
+  const ids = Array.isArray(session.messageIds) ? [...new Set(session.messageIds)] : [];
+  session.messageIds = [];
+  if (ids.length === 0) return;
+
+  // Видаляємо від новіших до старіших — так менше шансів впертися в обмеження редагування/видалення.
+  ids.sort((a, b) => b - a);
+
+  for (const messageId of ids) {
+    try {
+      // Може падати (старі повідомлення, відсутні права, вже видалено) — для UX це не критично.
+      // В Telegraf deleteMessage повертає boolean.
+      // eslint-disable-next-line no-await-in-loop
+      await ctx.telegram.deleteMessage(chatId, messageId);
+    } catch (_) {
+      // Ігноруємо помилки видалення, щоб не ламати сценарій вибору тесту.
+    }
+  }
 }
 
 async function sendQuestionPhoto(ctx, caption, dataUrl) {
@@ -348,6 +383,36 @@ async function showTestPicker(ctx, paths) {
 function makeBot(paths, getWindow) {
   const bot = new Telegraf(readJSON(paths.settingsPath)?.telegramBotToken || "");
 
+  // Middleware: трекаємо message_id для подальшого авто-очищення чату при виборі тесту.
+  // Також "обгортаємо" основні методи відповіді, щоб зберігати message_id повідомлень бота.
+  bot.use(async (ctx, next) => {
+    const chatId = ctx?.chat?.id;
+    const s = chatId ? getSession(chatId) : null;
+
+    const incomingId = ctx?.message?.message_id;
+    if (s && Number.isInteger(incomingId)) trackMessageId(s, incomingId);
+
+    if (s && typeof ctx?.reply === "function") {
+      const origReply = ctx.reply.bind(ctx);
+      ctx.reply = async (...args) => {
+        const msg = await origReply(...args);
+        if (msg && Number.isInteger(msg.message_id)) trackMessageId(s, msg.message_id);
+        return msg;
+      };
+    }
+
+    if (s && typeof ctx?.replyWithPhoto === "function") {
+      const origReplyWithPhoto = ctx.replyWithPhoto.bind(ctx);
+      ctx.replyWithPhoto = async (...args) => {
+        const msg = await origReplyWithPhoto(...args);
+        if (msg && Number.isInteger(msg.message_id)) trackMessageId(s, msg.message_id);
+        return msg;
+      };
+    }
+
+    return next();
+  });
+
   bot.command("start", async (ctx) => {
     const s0 = getSession(ctx.chat.id);
     if (s0.test && (s0.step === "question" || s0.step === "wait_check" || s0.step === "wait_text")) {
@@ -485,6 +550,7 @@ function makeBot(paths, getWindow) {
         await ctx.reply("Ви проходите тест. Щоб скасувати: /cancel");
         return;
       }
+      await clearTrackedChatMessages(ctx, s);
       await showTestPicker(ctx, paths);
       return;
     }
@@ -579,7 +645,7 @@ function stopTelegramBot() {
     try {
       botInstance.stop("SIGINT");
     } catch (e) {
-      /* ignore */
+      /* ignore: можемо отримати помилку під час зупинки/перезапуску в Electron */
     }
     botInstance = null;
   }
