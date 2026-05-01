@@ -1111,7 +1111,7 @@ function renderResultsView(container) {
 
 function openTestStudentPreview(test) {
   const previewTest = JSON.parse(JSON.stringify(test));
-  previewTest.questions = (previewTest.questions || []).map(migrateLegacyMatchingQuestion);
+  // matching підтримується, тому не мігруємо тип автоматично
 
   const overlay = document.createElement("div");
   overlay.style.cssText =
@@ -1276,7 +1276,7 @@ export function openTestEditorTab(testId) {
 
   let testDraft = JSON.parse(JSON.stringify(window.state.tests[testIndex]));
   if (testDraft.shuffle === undefined) testDraft.shuffle = false;
-  testDraft.questions = (testDraft.questions || []).map(migrateLegacyMatchingQuestion);
+  // matching підтримується, тому не мігруємо тип автоматично
 
   const tabId = "test-edit-" + testId;
   const tabTitle = `Тест: ${testDraft.title.substring(0, 20)}...`;
@@ -1598,7 +1598,7 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
   if (!originalTest) return;
 
   const test = JSON.parse(JSON.stringify(originalTest));
-  test.questions = (test.questions || []).map(migrateLegacyMatchingQuestion);
+  // matching підтримується, тому не мігруємо тип автоматично
 
   let questionMap = test.questions.map((_, i) => i);
   let optionMaps = {};
@@ -1668,31 +1668,30 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
         if (pairs.length === 0) {
           questionsHTML += `<div style="color:var(--muted);font-size:13px;">Немає пар для порівняння.</div>`;
         } else {
-          const chips = rights
-            .map((r) => {
-              const id = `mchip-${qi}-${encodeURIComponent(r).replace(/%/g, "")}`;
-              return `<div class="match-chip" draggable="true" data-match-q="${qi}" data-match-val="${window.esc(r)}" id="${id}">${window.esc(r)}</div>`;
-            })
+          const rightItems = rights
+            .map((r, ri) => `<button type="button" class="match-right-item" data-match-q="${qi}" data-match-right="${ri}" data-match-val="${window.esc(r)}">${window.esc(r)}</button>`)
             .join("");
           questionsHTML += `
             <div class="match-ui" data-match-ui="${qi}">
-              <div class="match-pool-title">Перетягніть відповіді справа у відповідні місця:</div>
-              <div class="match-pool" data-match-pool="${qi}">
-                ${chips}
+              <div class="match-pool-title">Клікніть ліворуч, потім клікніть потрібну відповідь праворуч.</div>
+              <div class="match-grid">
+                <div class="match-left-col">
+                  ${pairs
+                    .map(
+                      (p, pi) => `
+                        <button type="button" class="match-left-item" data-match-q="${qi}" data-match-p="${pi}">
+                          <span class="match-left-text">${window.esc(p.left)}</span>
+                          <span class="match-picked" data-match-q="${qi}" data-match-p="${pi}">—</span>
+                        </button>
+                      `
+                    )
+                    .join("")}
+                </div>
+                <div class="match-right-col" data-match-right-col="${qi}">
+                  ${rightItems}
+                </div>
               </div>
-              <div class="match-pairs">
-                ${pairs
-                  .map(
-                    (p, pi) => `
-                      <div class="match-row">
-                        <div class="match-left">${window.esc(p.left)}</div>
-                        <div class="match-drop" data-match-q="${qi}" data-match-p="${pi}" aria-label="Слот відповіді"></div>
-                      </div>
-                    `
-                  )
-                  .join("")}
-              </div>
-              <div class="match-hint">Підказка: можна перетягнути картку назад у верхній блок, щоб зняти відповідь.</div>
+              <div class="match-hint">Підказка: повторний клік по вибраному лівому елементу скасовує вибір; клік по правому, який уже використано, переносить його.</div>
             </div>
           `;
         }
@@ -1720,16 +1719,17 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
 
         .match-ui { display:flex; flex-direction:column; gap:12px; }
         .match-pool-title { font-size:13px; color:var(--text-secondary); }
-        .match-pool { display:flex; flex-wrap:wrap; gap:8px; padding:10px; border-radius:8px; border:1px dashed var(--border-color); background:var(--bg); min-height:48px; }
-        .match-chip { user-select:none; padding:8px 10px; border-radius:999px; border:1px solid var(--border-color); background:var(--panel); cursor:grab; font-size:14px; }
-        .match-chip:active { cursor:grabbing; }
-        .match-pairs { display:flex; flex-direction:column; gap:10px; }
-        .match-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-        .match-left { min-width:180px; font-weight:600; }
-        .match-drop { flex:1; min-width:220px; min-height:42px; padding:6px; border-radius:8px; border:1px solid var(--border-color); background:var(--bg); display:flex; align-items:center; }
-        .match-drop.dragover, .match-pool.dragover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
-        .match-drop.filled { border-color: rgba(74,222,128,0.6); background: rgba(74,222,128,0.06); }
-        .match-drop .match-chip { cursor:grab; }
+        .match-grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+        .match-left-col, .match-right-col { display:flex; flex-direction:column; gap:8px; }
+        .match-left-item { text-align:left; display:flex; justify-content:space-between; gap:10px; align-items:center; padding:12px; border-radius:8px; border:1px solid var(--border-color); background:var(--bg); cursor:pointer; }
+        .match-left-item:hover { border-color: var(--accent); }
+        .match-left-item.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99,102,241,0.22); }
+        .match-left-text { font-weight:700; }
+        .match-picked { color: var(--text-secondary); font-size:13px; padding:4px 8px; border-radius:999px; border:1px dashed var(--border-color); background: rgba(255,255,255,0.02); }
+        .match-picked.filled { border-style: solid; border-color: rgba(74,222,128,0.6); color: var(--text-primary); background: rgba(74,222,128,0.06); }
+        .match-right-item { text-align:left; padding:12px; border-radius:8px; border:1px solid var(--border-color); background:var(--panel); cursor:pointer; }
+        .match-right-item:hover { border-color: var(--accent); }
+        .match-right-item.used { opacity: 0.55; }
         .match-hint { font-size:12px; color:var(--muted); }
       </style>
 
@@ -1782,10 +1782,10 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
           const pairs = safePairs(q);
           if (pairs.length === 0) hasAnswer = true;
           else {
-            const drops = window.$$(`.match-drop[data-match-q="${qi}"]`, questionsArea);
+            const picks = window.$$(`.match-picked[data-match-q="${qi}"]`, questionsArea);
             hasAnswer =
-              drops.length === pairs.length &&
-              [...drops].every((d) => String(d.dataset.matchVal || "").trim().length > 0);
+              picks.length === pairs.length &&
+              [...picks].every((d) => String(d.dataset.matchVal || "").trim().length > 0);
           }
         }
 
@@ -1804,93 +1804,97 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
     questionsArea.addEventListener("input", updateProgressAndNav);
     updateProgressAndNav();
 
-    // Matching drag-and-drop (delegation)
-    const findChip = (el) => (el ? el.closest(".match-chip") : null);
-    const findDrop = (el) => (el ? el.closest(".match-drop") : null);
-    const findPool = (el) => (el ? el.closest(".match-pool") : null);
+    // Matching click-to-match
+    const matchingState = {}; // qi -> { activePi: number|null, rightByPi: string[], piByRight: Map<string, number> }
 
-    questionsArea.addEventListener("dragstart", (e) => {
-      const chip = findChip(e.target);
-      if (!chip) return;
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", chip.id || "");
-      chip.classList.add("dragging");
-    });
-    questionsArea.addEventListener("dragend", (e) => {
-      const chip = findChip(e.target);
-      if (!chip) return;
-      chip.classList.remove("dragging");
-      window.$$(".match-drop.dragover, .match-pool.dragover", questionsArea).forEach((x) => x.classList.remove("dragover"));
-    });
-
-    const allowDrop = (e) => {
-      const chipId = e.dataTransfer?.getData("text/plain");
-      if (!chipId) return false;
-      e.preventDefault();
-      return true;
+    const initMatchingForQi = (qi) => {
+      if (matchingState[qi]) return matchingState[qi];
+      const q = test.questions[qi];
+      const pairs = safePairs(q);
+      matchingState[qi] = {
+        activePi: null,
+        rightByPi: new Array(pairs.length).fill(""),
+        piByRight: new Map(),
+      };
+      return matchingState[qi];
     };
 
-    questionsArea.addEventListener("dragover", (e) => {
-      const drop = findDrop(e.target);
-      const pool = findPool(e.target);
-      if (!drop && !pool) return;
-      if (!allowDrop(e)) return;
-      (drop || pool).classList.add("dragover");
-    });
-    questionsArea.addEventListener("dragleave", (e) => {
-      const drop = findDrop(e.target);
-      const pool = findPool(e.target);
-      if (drop) drop.classList.remove("dragover");
-      if (pool) pool.classList.remove("dragover");
-    });
-
-    const moveChipToPool = (chip, pool) => {
-      if (!chip || !pool) return;
-      pool.appendChild(chip);
+    const renderMatchingUi = (qi) => {
+      const st = initMatchingForQi(qi);
+      const q = test.questions[qi];
+      const pairs = safePairs(q);
+      // left active
+      window.$$(`.match-left-item[data-match-q="${qi}"]`, questionsArea).forEach((btn) => {
+        const pi = parseInt(btn.dataset.matchP, 10);
+        btn.classList.toggle("active", st.activePi === pi);
+      });
+      // picks + mark used rights
+      window.$$(`.match-picked[data-match-q="${qi}"]`, questionsArea).forEach((el) => {
+        const pi = parseInt(el.dataset.matchP, 10);
+        const v = st.rightByPi[pi] || "";
+        el.textContent = v ? v : "—";
+        el.dataset.matchVal = v;
+        el.classList.toggle("filled", !!v);
+      });
+      window.$$(`.match-right-item[data-match-q="${qi}"]`, questionsArea).forEach((btn) => {
+        const v = String(btn.dataset.matchVal || "");
+        const used = st.piByRight.has(v);
+        btn.classList.toggle("used", used);
+      });
     };
 
-    const setDropValue = (drop, chip) => {
-      if (!drop) return;
-      // якщо там уже є картка — повертаємо її в пул цього ж питання
-      const existing = window.$(".match-chip", drop);
-      if (existing) {
-        const qi = drop.dataset.matchQ;
-        const pool = window.$(`.match-pool[data-match-pool="${qi}"]`, questionsArea);
-        moveChipToPool(existing, pool);
+    const clearMatchForPi = (qi, pi) => {
+      const st = initMatchingForQi(qi);
+      const old = st.rightByPi[pi] || "";
+      if (old) st.piByRight.delete(old);
+      st.rightByPi[pi] = "";
+    };
+
+    const assignRightToPi = (qi, pi, rightVal) => {
+      const st = initMatchingForQi(qi);
+      const v = String(rightVal || "");
+      if (!v) return;
+      // якщо right вже використано іншим pi — звільняємо його
+      const prevPi = st.piByRight.get(v);
+      if (prevPi != null && prevPi !== pi) {
+        st.rightByPi[prevPi] = "";
       }
-      drop.innerHTML = "";
-      if (chip) drop.appendChild(chip);
-      const v = chip ? String(chip.dataset.matchVal || "") : "";
-      drop.dataset.matchVal = v;
-      drop.classList.toggle("filled", !!v.trim());
+      // якщо у pi вже було інше значення — звільняємо
+      const old = st.rightByPi[pi];
+      if (old) st.piByRight.delete(old);
+      st.rightByPi[pi] = v;
+      st.piByRight.set(v, pi);
     };
 
-    questionsArea.addEventListener("drop", (e) => {
-      const drop = findDrop(e.target);
-      const pool = findPool(e.target);
-      const chipId = e.dataTransfer?.getData("text/plain");
-      if (!chipId) return;
-      const chip = document.getElementById(chipId);
-      if (!chip || !chip.classList.contains("match-chip")) return;
-
-      // Обмежуємо переміщення тільки в межах одного питання
-      const qOfChip = String(chip.dataset.matchQ || "");
-      if (drop) {
-        if (String(drop.dataset.matchQ || "") !== qOfChip) return;
-        e.preventDefault();
-        drop.classList.remove("dragover");
-        setDropValue(drop, chip);
+    questionsArea.addEventListener("click", (e) => {
+      const leftBtn = e.target.closest(".match-left-item");
+      if (leftBtn && leftBtn.dataset.matchQ != null) {
+        const qi = parseInt(leftBtn.dataset.matchQ, 10);
+        const pi = parseInt(leftBtn.dataset.matchP, 10);
+        const st = initMatchingForQi(qi);
+        // повторний клік по активному — зняти активність; клік з shift — очистити вибір
+        if (e.shiftKey) {
+          clearMatchForPi(qi, pi);
+          st.activePi = pi;
+        } else {
+          st.activePi = st.activePi === pi ? null : pi;
+        }
+        renderMatchingUi(qi);
         updateProgressAndNav();
         return;
       }
-      if (pool) {
-        if (String(pool.dataset.matchPool || "") !== qOfChip) return;
-        e.preventDefault();
-        pool.classList.remove("dragover");
-        moveChipToPool(chip, pool);
-        // якщо картку повернули в пул — треба почистити слот, звідки її забрали
-        const parentDrop = chip.closest(".match-drop");
-        if (parentDrop) setDropValue(parentDrop, null);
+
+      const rightBtn = e.target.closest(".match-right-item");
+      if (rightBtn && rightBtn.dataset.matchQ != null) {
+        const qi = parseInt(rightBtn.dataset.matchQ, 10);
+        const v = String(rightBtn.dataset.matchVal || "");
+        const st = initMatchingForQi(qi);
+        if (st.activePi == null) return;
+        assignRightToPi(qi, st.activePi, v);
+        // авто-перехід до наступного не заповненого
+        const next = st.rightByPi.findIndex((x) => !x);
+        st.activePi = next >= 0 ? next : null;
+        renderMatchingUi(qi);
         updateProgressAndNav();
       }
     });
@@ -2041,8 +2045,8 @@ export function renderRunTest(testId, studentName, timeLimitInMinutes = 0) {
           const pairs = safePairs(q);
           const arr = [];
           for (let pi = 0; pi < pairs.length; pi++) {
-            const drop = window.$(`.match-drop[data-match-q="${qi}"][data-match-p="${pi}"]`, questionsArea);
-            arr.push(drop ? String(drop.dataset.matchVal || "") : "");
+            const el = window.$(`.match-picked[data-match-q="${qi}"][data-match-p="${pi}"]`, questionsArea);
+            arr.push(el ? String(el.dataset.matchVal || "") : "");
           }
           answers[qi] = arr;
         }
