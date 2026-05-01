@@ -43,6 +43,8 @@
   let testCompleted = false;
   /** Щоб не дублювати abandon. */
   let abandonSent = false;
+  /** Захист від подвійного надсилання (MainButton / подвійний тиць). */
+  let answerPosting = false;
 
   const TYPE_LABELS = {
     radio: "Один варіант",
@@ -391,55 +393,120 @@
   }
 
   function renderMatching(view) {
-    const head = document.createElement("div");
-    head.className = "match-head";
-    const meta = document.createElement("div");
-    meta.className = "match-head__meta";
-    meta.textContent = `Пара ${(view.pairIndex || 0) + 1} з ${view.pairTotal || 0}`;
-    const left = document.createElement("div");
-    left.className = "match-head__left";
-    left.textContent = view.left || "";
-    head.appendChild(meta);
-    head.appendChild(left);
-    els.qBody.appendChild(head);
+    const leftItems = Array.isArray(view.matchingLeft) ? view.matchingLeft : [];
+    const rightItems = Array.isArray(view.matchingRight) ? view.matchingRight : [];
+    const pairTotal = typeof view.pairTotal === "number" ? view.pairTotal : leftItems.length;
+
+    els.qHint.textContent =
+      `Потрібно з'єднати ${pairTotal} пар. Тицьніть спочатку елемент ліворуч, потім відповідь праворуч. ` +
+      `Повторний тиць по вже вибраному лівому пункту знімає активний вибір. Кожна пара має свій колір зліва й справа.`;
+    els.qHint.classList.remove("hidden");
+
+    const root = document.createElement("div");
+    root.className = "match-ma";
 
     const grid = document.createElement("div");
-    grid.className = "match-choices";
-    els.qBody.appendChild(grid);
+    grid.className = "match-ma-grid";
 
-    const choices = view.choices || [];
-    const buttons = [];
-    let chosenIdx = null;
-    choices.forEach((c) => {
+    const leftCol = document.createElement("div");
+    leftCol.className = "match-ma-col";
+    const rightCol = document.createElement("div");
+    rightCol.className = "match-ma-col";
+
+    const lh = document.createElement("div");
+    lh.className = "match-ma-col-head";
+    lh.textContent = "Ліворуч";
+    const rh = document.createElement("div");
+    rh.className = "match-ma-col-head";
+    rh.textContent = "Праворуч";
+    leftCol.appendChild(lh);
+    rightCol.appendChild(rh);
+
+    /** pi -> обраний індекс правого варіанту (ri) */
+    const picks = new Map();
+    leftItems.forEach(({ pi }) => picks.set(pi, null));
+    let activePi = /** @type {number|null} */ (null);
+
+    const toneClass = (pi) => `match-tone-${pi % 6}`;
+
+    const sync = () => {
+      leftCol.querySelectorAll(".match-ma-btn--left").forEach((btn) => {
+        const pi = Number(btn.dataset.pi);
+        const riPick = picks.get(pi);
+        btn.className = "match-ma-btn match-ma-btn--left";
+        if (activePi === pi) btn.classList.add("match-ma-btn--active");
+        if (riPick != null) btn.classList.add(toneClass(pi));
+      });
+      rightCol.querySelectorAll(".match-ma-btn--right").forEach((btn) => {
+        const ri = Number(btn.dataset.ri);
+        let matchedPi = null;
+        for (const [pi, rv] of picks.entries()) {
+          if (rv === ri) {
+            matchedPi = pi;
+            break;
+          }
+        }
+        btn.className = "match-ma-btn match-ma-btn--right";
+        if (matchedPi != null) btn.classList.add(toneClass(matchedPi));
+      });
+    };
+
+    leftItems.forEach(({ pi, text }) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "opt";
-
-      const bullet = document.createElement("span");
-      bullet.className = "opt__bullet";
-      const label = document.createElement("span");
-      label.className = "opt__label";
-      label.textContent = c.text || "—";
-
-      b.appendChild(bullet);
-      b.appendChild(label);
+      b.className = "match-ma-btn match-ma-btn--left";
+      b.dataset.pi = String(pi);
+      b.textContent = text && String(text).trim() ? String(text) : "—";
       b.addEventListener("click", () => {
-        chosenIdx = c.i;
-        buttons.forEach((btn, idx) => btn.classList.toggle("selected", choices[idx].i === c.i));
+        if (activePi === pi) activePi = null;
+        else activePi = pi;
+        sync();
         haptic("ok");
       });
-      grid.appendChild(b);
-      buttons.push(b);
+      leftCol.appendChild(b);
     });
 
+    rightItems.forEach(({ ri, text }) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "match-ma-btn match-ma-btn--right";
+      b.dataset.ri = String(ri);
+      b.textContent = text && String(text).trim() ? String(text) : "—";
+      b.addEventListener("click", () => {
+        if (activePi == null) {
+          alertUser("Спочатку оберіть пункт ліворуч.");
+          haptic("warn");
+          return;
+        }
+        const pi = activePi;
+        for (const [pk, rv] of picks.entries()) {
+          if (rv === ri && pk !== pi) picks.set(pk, null);
+        }
+        picks.set(pi, ri);
+        activePi = null;
+        sync();
+        haptic("ok");
+      });
+      rightCol.appendChild(b);
+    });
+
+    grid.appendChild(leftCol);
+    grid.appendChild(rightCol);
+    root.appendChild(grid);
+    els.qBody.appendChild(root);
+    sync();
+
     const submit = () => {
-      if (chosenIdx == null) {
-        alertUser("Оберіть відповідність праворуч.");
+      const sortedLeft = [...leftItems].sort((a, b) => a.pi - b.pi);
+      const anyMissing = sortedLeft.some(({ pi }) => picks.get(pi) == null);
+      if (anyMissing) {
+        alertUser("З'єднайте всі пари (колір має збігатися зліва й справа), потім надішліть відповідь.");
         return;
       }
-      void postAnswer({ index: chosenIdx });
+      const matchPicks = sortedLeft.map(({ pi }) => picks.get(pi));
+      void postAnswer({ matchPicks });
     };
-    if (!setMainButton("Підтвердити", submit)) {
+    if (!setMainButton("Надіслати відповідь", submit)) {
       alertUser("Немає кнопки надсилання (відкрийте через Telegram Mini App).");
     }
   }
@@ -504,6 +571,8 @@
       });
       return;
     }
+    if (answerPosting) return;
+    answerPosting = true;
     try {
       els.loadingText.textContent = "Збереження…";
       show("loading");
@@ -521,6 +590,8 @@
     } catch (e) {
       const { msg, detail } = describeError(e);
       showError({ title: "Не вдалося надіслати відповідь", message: msg, detail });
+    } finally {
+      answerPosting = false;
     }
   }
 

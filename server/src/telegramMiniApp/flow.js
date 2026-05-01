@@ -134,20 +134,21 @@ function buildQuestionView(session) {
       session.match = {
         qi,
         rightsShuffled: shuffleArray(pairs.map((p) => p.right)),
-        picks: [],
-        pi: 0,
       };
     }
     const m = session.match;
-    const pair = pairs[m.pi];
-    const choices = m.rightsShuffled.map((text, i) => ({ i, text: String(text) }));
     return {
       ...base,
       type: "matching",
-      pairIndex: m.pi,
       pairTotal: pairs.length,
-      left: pair ? String(pair.left) : "",
-      choices,
+      matchingLeft: pairs.map((p, pi) => ({
+        pi,
+        text: p && p.left != null ? String(p.left) : "",
+      })),
+      matchingRight: m.rightsShuffled.map((text, ri) => ({
+        ri,
+        text: text != null ? String(text) : "",
+      })),
     };
   }
 
@@ -205,17 +206,29 @@ function advanceWithAnswer(session, answer) {
     const pairs = q.pairs || [];
     const m = session.match;
     if (!m || m.qi !== qi) return { ok: false, error: "matching_state" };
-    const pick = answer?.index;
-    const n = typeof pick === "number" ? pick : parseInt(String(pick), 10);
-    if (!Number.isFinite(n) || n < 0 || n >= m.rightsShuffled.length) return { ok: false, error: "bad_match" };
-    m.picks[m.pi] = m.rightsShuffled[n];
-    m.pi++;
-    if (m.pi >= pairs.length) {
-      session.answers[qi] = m.picks;
-      session.match = null;
-      session.qi++;
-      skipNonInteractiveIfNeeded(session);
+
+    const picksRi = answer?.matchPicks;
+    if (!Array.isArray(picksRi)) return { ok: false, error: "bad_match" };
+    if (picksRi.length !== pairs.length) return { ok: false, error: "bad_match" };
+
+    const n = m.rightsShuffled.length;
+    if (pairs.length !== n) return { ok: false, error: "bad_match" };
+
+    const used = new Set();
+    const resolved = [];
+    for (let pi = 0; pi < pairs.length; pi++) {
+      const raw = picksRi[pi];
+      const ri = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+      if (!Number.isFinite(ri) || ri < 0 || ri >= n) return { ok: false, error: "bad_match" };
+      if (used.has(ri)) return { ok: false, error: "bad_match" };
+      used.add(ri);
+      resolved.push(m.rightsShuffled[ri]);
     }
+
+    session.answers[qi] = resolved;
+    session.match = null;
+    session.qi++;
+    skipNonInteractiveIfNeeded(session);
     return { ok: true };
   }
 

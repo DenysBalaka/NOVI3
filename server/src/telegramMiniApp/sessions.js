@@ -9,7 +9,11 @@ function createId() {
 
 function put(session) {
   const id = createId();
-  store.set(id, { ...session, _id: id, _createdAt: Date.now() });
+  // Зберігаємо сам об'єкт сесії (не shallow-copy): інакше мутації з flow.buildQuestionView / advanceWithAnswer
+  // потрапляють у «інший» інстанс і наступний /answer бачить match === null → matching_state.
+  session._id = id;
+  session._createdAt = Date.now();
+  store.set(id, session);
   return id;
 }
 
