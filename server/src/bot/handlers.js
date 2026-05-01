@@ -387,11 +387,26 @@ async function finishTest(ctx, session) {
     if (teacherChatId) {
       const pts = safePointsNumber(score.earnedPoints);
       const maxPts = safePointsNumber(score.maxPoints);
-      const msg =
-        `✅ Учень пройшов тест\n\n` +
-        `Учень: ${session.studentName || "—"}\n` +
-        `Тест: ${originalTest?.title || "—"}\n` +
-        `Бали: ${pts} з ${maxPts} (${pct}%)`;
+      const remind =
+        `\n\n📌 Нагадування для учнів: тест зараховується лише за умови відповіді на всі питання.`;
+      let msg;
+      if (score.hasTextQuestions) {
+        msg =
+          `✅ Учень пройшов тест\n\n` +
+          `Учень: ${session.studentName || "—"}\n` +
+          `Тест: ${originalTest?.title || "—"}\n\n` +
+          `⚠️ Потрібна перевірка вчителя: є відкриті (текстові) відповіді.\n` +
+          `Попередній підрахунок балів (до перевірки тексту): ${pts} з ${maxPts} (${pct}%).` +
+          remind;
+      } else {
+        msg =
+          `✅ Учень пройшов тест\n\n` +
+          `Учень: ${session.studentName || "—"}\n` +
+          `Тест: ${originalTest?.title || "—"}\n` +
+          `Бали: ${pts} з ${maxPts} (${pct}%)\n` +
+          `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}` +
+          remind;
+      }
       await ctx.telegram.sendMessage(teacherChatId, msg);
     }
   } catch (e) {
@@ -406,16 +421,17 @@ async function finishTest(ctx, session) {
     resultMessage =
       `✅ <b>Тест завершено</b>\n\n` +
       `Учень: ${escHtml(session.studentName)}\n\n` +
-      `Ваш тест містить текстові відповіді, які потребують перевірки вчителем.\n` +
-      `Ви отримаєте результат після оцінювання.\n\n` +
+      `Дякуємо за проходження тесту.\n` +
+      `Ваші результати будуть оголошені після перевірки вчителем.\n\n` +
       `Результат збережено у хмарі.\n\n` +
       `Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або /start, щоб пройти інший тест.`;
   } else {
     resultMessage =
       `✅ <b>Тест завершено</b>\n\n` +
-      `Учень: ${escHtml(session.studentName)}\n` +
+      `Учень: ${escHtml(session.studentName)}\n\n` +
       `Бали: ${score.earnedPoints} з ${score.maxPoints} (${pct}%)\n` +
       `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}\n\n` +
+      `Дякуємо за проходження тесту!\n\n` +
       `Результат збережено у хмарі. Вчитель побачить його після синхронізації в TeacherJournal.\n\n` +
       `Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або /start, щоб пройти інший тест.`;
   }

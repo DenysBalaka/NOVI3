@@ -66,11 +66,26 @@ async function notifyTeacherAfterAttempt(session, score, originalTest) {
     const pct = score.maxPoints > 0 ? Math.round((score.earnedPoints / score.maxPoints) * 100) : 0;
     const pts = safePointsNumber(score.earnedPoints);
     const maxPts = safePointsNumber(score.maxPoints);
-    const msg =
-      `✅ Учень пройшов тест (Web App)\n\n` +
-      `Учень: ${session.studentName || "—"}\n` +
-      `Тест: ${originalTest?.title || "—"}\n` +
-      `Бали: ${pts} з ${maxPts} (${pct}%)`;
+    const remind =
+      `\n\n📌 Нагадування для учнів: тест зараховується лише за умови відповіді на всі питання.`;
+    let msg;
+    if (score.hasTextQuestions) {
+      msg =
+        `✅ Учень пройшов тест (Web App)\n\n` +
+        `Учень: ${session.studentName || "—"}\n` +
+        `Тест: ${originalTest?.title || "—"}\n\n` +
+        `⚠️ Потрібна перевірка вчителя: є відкриті (текстові) відповіді.\n` +
+        `Попередній підрахунок балів (до перевірки тексту): ${pts} з ${maxPts} (${pct}%).` +
+        remind;
+    } else {
+      msg =
+        `✅ Учень пройшов тест (Web App)\n\n` +
+        `Учень: ${session.studentName || "—"}\n` +
+        `Тест: ${originalTest?.title || "—"}\n` +
+        `Бали: ${pts} з ${maxPts} (${pct}%)\n` +
+        `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}` +
+        remind;
+    }
     const token = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
     if (!token) return;
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -130,15 +145,17 @@ async function finalizeSession(session) {
     message =
       `✅ Тест завершено\n\n` +
       `Учень: ${studentLabel}\n\n` +
-      `Є текстові відповіді — вчитель перевірить їх окремо.\n` +
+      `Дякуємо за проходження тесту.\n` +
+      `Ваші результати будуть оголошені після перевірки вчителем.\n\n` +
       `Результат збережено.\n\n` +
       `Натисніть «Закрити» або поверніться до чату з ботом.`;
   } else {
     message =
       `✅ Тест завершено\n\n` +
-      `Учень: ${studentLabel}\n` +
+      `Учень: ${studentLabel}\n\n` +
       `Бали: ${score.earnedPoints} з ${score.maxPoints} (${pct}%)\n` +
       `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}\n\n` +
+      `Дякуємо за проходження тесту!\n\n` +
       `Результат збережено.`;
   }
 

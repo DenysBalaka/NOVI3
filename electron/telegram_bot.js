@@ -290,16 +290,17 @@ async function finishTest(ctx, paths, session) {
     resultMessage =
       `✅ <b>Тест завершено</b>\n\n` +
       `Учень: ${escHtml(session.studentName)}\n\n` +
-      `Ваш тест містить текстові відповіді, які потребують перевірки вчителем.\n` +
-      `Ви отримаєте результат після оцінювання.\n\n` +
+      `Дякуємо за проходження тесту.\n` +
+      `Ваші результати будуть оголошені після перевірки вчителем.\n\n` +
       `Результат збережено в журналі на комп'ютері вчителя.\n\n` +
       `Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або /start, щоб пройти інший тест.`;
   } else {
     resultMessage =
       `✅ <b>Тест завершено</b>\n\n` +
-      `Учень: ${escHtml(session.studentName)}\n` +
+      `Учень: ${escHtml(session.studentName)}\n\n` +
       `Бали: ${score.earnedPoints} з ${score.maxPoints} (${pct}%)\n` +
       `Правильних відповідей: ${score.correctCount} з ${score.totalQuestions}\n\n` +
+      `Дякуємо за проходження тесту!\n\n` +
       `Результат збережено в журналі на комп'ютері вчителя.\n\n` +
       `Натисніть «${MENU_BTN_CHOOSE_TEST}» внизу або /start, щоб пройти інший тест.`;
   }
